@@ -179,15 +179,18 @@ async function loadDashboardMaintenance(garageId: string) {
 
   (async () => {
     try {
-      // 1) Ensure user is signed in
-      const { data, error } = await supabase.auth.getUser();
-      if (error) throw error;
+      // 1) Ensure user is signed in (no scary alert in prod)
+const { data: sessionData, error: sErr } = await supabase.auth.getSession();
+if (sErr) throw sErr;
 
-      const u = data.user;
-      if (!u) {
-        router.replace("/login");
-        return;
-      }
+const session = sessionData.session;
+if (!session?.user) {
+  router.replace("/login");
+  return;
+}
+
+const u = session.user;
+
 
       if (!isMounted) return;
       setUserId(u.id);
