@@ -1,56 +1,234 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+
+const colors = {
+  bg: "#1e1e1e",
+  panel: "#252526",
+  border: "#3c3c3c",
+  text: "#e6e6e6",
+  muted: "#a0a0a0",
+};
+
+type Role = "member" | "owner";
+
+type ProfileRow = {
+  id: string;
+  email: string | null;
+  full_name: string | null;
+};
+
+type GarageMemberRow = {
+  user_id: string;
+  role: Role;
+};
 
 export default function MembersPage() {
   const router = useRouter();
 
   const [garageId, setGarageId] = useState<string | null>(null);
-  const [newUserId, setNewUserId] = useState("");
-  const [role, setRole] = useState<"member" | "owner">("member");
+
+  const [profiles, setProfiles] = useState<ProfileRow[]>([]);
+  const [members, setMembers] = useState<GarageMemberRow[]>([]);
+
+  const [selectedUserId, setSelectedUserId] = useState<string>("");
+  const [newRole, setNewRole] = useState<Role>("member");
+
   const [msg, setMsg] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [working, setWorking] = useState(false);
+
+  // Map user_id -> profile for display
+  const profileById = useMemo(() => {
+    const m = new Map<string, ProfileRow>();
+    for (const p of profiles) m.set(p.id, p);
+    return m;
+  }, [profiles]);
+
+  const memberIds = useMemo(() => new Set(members.map((m) => m.user_id)), [members]);
+const pageStyle: CSSProperties = {
+  padding: 16,
+  fontFamily: "system-ui",
+  maxWidth: 820,
+  margin: "0 auto",
+  background: colors.bg,
+  color: colors.text,
+  minHeight: "100vh",
+};
+
+const panelStyle: CSSProperties = {
+  border: `1px solid ${colors.border}`,
+  background: colors.panel,
+  borderRadius: 12,
+  padding: 14,
+};
+
+const inputStyle: CSSProperties = {
+  display: "block",
+  width: "100%",
+  padding: 10,
+  borderRadius: 10,
+  border: `1px solid ${colors.border}`,
+  background: colors.bg,
+  color: colors.text,
+  marginTop: 6,
+};
+
+const buttonStyle: CSSProperties = {
+  padding: "8px 10px",
+  borderRadius: 10,
+  border: `1px solid ${colors.border}`,
+  background: colors.panel,
+  color: colors.text,
+  cursor: "pointer",
+  whiteSpace: "nowrap",
+};
+
+const disabledButtonStyle: CSSProperties = {
+  ...buttonStyle,
+  background: colors.bg,
+  color: colors.muted,
+  cursor: "not-allowed",
+};
+
+  const availableProfiles = useMemo(() => {
+    // Only show people not already in this garage
+    return profiles.filter((p) => !memberIds.has(p.id));
+  }, [profiles, memberIds]);
 
   useEffect(() => {
     (async () => {
+      setLoading(true);
+      setMsg(null);
+
       const { data } = await supabase.auth.getUser();
       if (!data.user) {
         router.replace("/login");
         return;
       }
 
-      // Get THIS user's membership row to discover garage_id
-      const { data: memberships, error } = await supabase
+      // Discover garage_id from current user's membership row
+      const { data: memberships, error: memErr } = await supabase
         .from("garage_members")
         .select("garage_id")
-        .eq("user_id", data.user.id)
-        .limit(1);
+        .eq("user_id", data.user.id);
 
-      if (error) {
-        setMsg(error.message);
+      if (memErr) {
+        setMsg(memErr.message);
+        setLoading(false);
         return;
       }
 
       if (!memberships || memberships.length === 0) {
         setMsg("No garage membership found for your user.");
+        setLoading(false);
         return;
       }
 
-      setGarageId(memberships[0].garage_id);
+      const gId = memberships[0].garage_id as string;
+      setGarageId(gId);
+
+      // Load profiles (dropdown)
+      const { data: profs, error: profErr } = await supabase
+        .from("profiles")
+        .select("id,email,full_name")
+        .order("email", { ascending: true });
+
+      if (profErr) {
+        setMsg(`Profiles error: ${profErr.message}`);
+        setLoading(false);
+        return;
+      }
+      setProfiles((profs ?? []) as ProfileRow[]);
+
+      // Load current garage members
+      const { data: gms, error: gmErr } = await supabase
+        .from("garage_members")
+        .select("user_id,role")
+        .eq("garage_id", gId)
+        .order("role", { ascending: false });
+
+      if (gmErr) {
+        setMsg(`Members error: ${gmErr.message}`);
+        setLoading(false);
+        return;
+      }
+      setMembers((gms ?? []) as GarageMemberRow[]);
+
+      setLoading(false);
     })();
   }, [router]);
 
-  async function addMember() {
+async function refreshMembers() {
+  if (!garageId) return;
+
+  const { data: gms, error } = await supabase
+    .from("garage_members")
+    .select("user_id,role")
+    .eq("garage_id", garageId);
+
+  if (error) {
+    setMsg(`Refresh members failed: ${error.message}`);
+    return;
+  }
+
+  setMembers((gms ?? []) as GarageMemberRow[]);
+  setMsg((prev) => (prev ? prev : `Members loaded: ${(gms ?? []).length}`));
+}
+
+
+  async function addSelectedMember() {
     setMsg(null);
     if (!garageId) return;
 
-    const userId = newUserId.trim();
-    if (!userId) {
-      setMsg("Paste the user's UUID.");
+    if (!selectedUserId) {
+      setMsg("Pick a user to add.");
       return;
     }
 
+    setWorking(true);
+    const { error } = await supabase.rpc("add_garage_member", {
+      p_garage_id: garageId,
+      p_user_id: selectedUserId,
+      p_role: newRole,
+    });
+
+    const { data: check, error: checkErr } = await supabase
+  .from("garage_members")
+  .select("user_id,role")
+  .eq("garage_id", garageId)
+  .eq("user_id", selectedUserId)
+  .maybeSingle();
+
+if (checkErr) {
+  setMsg(`Added, but verification failed: ${checkErr.message}`);
+} else if (!check) {
+  setMsg("RPC returned success, but the member row was not found. (Likely RPC/RLS issue)");
+} else {
+  setMsg("Member added.");
+}
+
+
+    if (error) {
+      setMsg(error.message);
+      setWorking(false);
+      return;
+    }
+
+    setMsg("Member added/updated.");
+    setSelectedUserId("");
+    setNewRole("member");
+    await refreshMembers();
+    setWorking(false);
+  }
+
+  async function updateRole(userId: string, role: Role) {
+    setMsg(null);
+    if (!garageId) return;
+
+    setWorking(true);
     const { error } = await supabase.rpc("add_garage_member", {
       p_garage_id: garageId,
       p_user_id: userId,
@@ -59,62 +237,112 @@ export default function MembersPage() {
 
     if (error) {
       setMsg(error.message);
+      setWorking(false);
       return;
     }
 
-    setMsg("Member added/updated.");
-    setNewUserId("");
+    await refreshMembers();
+    setWorking(false);
   }
 
   return (
-    <main style={{ padding: 16, fontFamily: "system-ui", maxWidth: 720, margin: "0 auto" }}>
-      <h1 style={{ fontSize: 24, marginBottom: 12 }}>Garage Members (Owner)</h1>
+<main style={pageStyle}>
+   <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
+      <h1 style={{ fontSize: 28, margin: 0 }}>Garage Members</h1>
 
-      <p style={{ opacity: 0.75, marginBottom: 12 }}>
-        For now, add family members by their Supabase User UUID (from Supabase → Authentication → Users).
-      </p>
-
-      <div style={{ border: "1px solid #e5e5e5", borderRadius: 12, padding: 14 }}>
-        <label>
-          User UUID
-          <input
-            value={newUserId}
-            onChange={(e) => setNewUserId(e.target.value)}
-            placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-            style={{ display: "block", width: "100%", padding: 10, borderRadius: 10, border: "1px solid #ccc", marginTop: 6 }}
-          />
-        </label>
-
-        <div style={{ marginTop: 10 }}>
-          <label>
-            Role&nbsp;
-            <select
-              value={role}
-              onChange={(e) => setRole(e.target.value as any)}
-              style={{ padding: 8, borderRadius: 10, border: "1px solid #ccc" }}
-            >
-              <option value="member">member</option>
-              <option value="owner">owner</option>
-            </select>
-          </label>
+      <div style={{ display: "flex", gap: 8 }}>
+        <button onClick={() => router.push("/")} style={buttonStyle}>
+            ← Back
+          </button>
         </div>
+    </div>
+      {loading ? (
+        <p style={{ opacity: 0.8 }}>Loading…</p>
+      ) : (
+        <>
+          <section style={{ ...panelStyle, marginTop: 14 }}>
+            <h2 style={{ fontSize: 18, marginBottom: 10 }}>Add member</h2>
+            <label>
+              User
+              <select
+                value={selectedUserId}
+                onChange={(e) => setSelectedUserId(e.target.value)}
+                style={{ display: "block", width: "100%", padding: 10, borderRadius: 10, border: "1px solid #ccc", marginTop: 6 }}
+              >
+                <option value="">Select a user…</option>
+                {availableProfiles.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {(p.full_name || p.email || p.id).toString()}
+                  </option>
+                ))}
+              </select>
+            </label>
 
-        <button
-          onClick={addMember}
-          style={{
-            marginTop: 12,
-            padding: "10px 14px",
-            borderRadius: 10,
-            border: "1px solid #ccc",
-            background: "#fff",
-            cursor: "pointer",
-          }}
-        >
-          Add / Update Member
-        </button>
+            <div style={{ marginTop: 10 }}>
+              <label>
+                Role&nbsp;
+                <select
+                  value={newRole}
+                  onChange={(e) => setNewRole(e.target.value as Role)}
+                  style={{ padding: 8, borderRadius: 10, border: "1px solid #ccc" }}
+                >
+                  <option value="member">member</option>
+                  <option value="owner">owner</option>
+                </select>
+              </label>
+            </div>
 
-        {msg && <p style={{ marginTop: 10 }}>{msg}</p>}
-      </div>
+            <button
+    onClick={addSelectedMember}
+    disabled={working}
+    style={working ? disabledButtonStyle : { ...buttonStyle, marginTop: 12 }}
+  >
+    {working ? "Working…" : "Add / Update Member"}
+  </button>
+
+            {availableProfiles.length === 0 && (
+              <p style={{ marginTop: 10, opacity: 0.75 }}>
+                No available users to add.
+              </p>
+            )}
+
+            {msg && <p style={{ marginTop: 10 }}>{msg}</p>}
+        </section>
+
+        <section style={{ ...panelStyle, marginTop: 14 }}>
+          <h2 style={{ fontSize: 18, marginBottom: 10 }}>Current members</h2>
+            {members.length === 0 ? (
+              <p style={{ opacity: 0.75 }}>No members found.</p>
+            ) : (
+              <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+                {members.map((m) => {
+                  const p = profileById.get(m.user_id);
+                  const label = p?.full_name || p?.email || m.user_id;
+
+                  return (
+                    <li key={m.user_id} style={{ display: "flex", gap: 10, alignItems: "center", padding: "8px 0", borderBottom: "1px solid #eee" }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontWeight: 600 }}>{label}</div>
+                        {p?.email && <div style={{ opacity: 0.7, fontSize: 13 }}>{p.email}</div>}
+                      </div>
+
+                      <select
+                        value={m.role}
+                        onChange={(e) => updateRole(m.user_id, e.target.value as Role)}
+                        disabled={working}
+                        style={{ padding: 8, borderRadius: 10, border: "1px solid #ccc" }}
+                      >
+                        <option value="member">member</option>
+                        <option value="owner">owner</option>
+                      </select>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </section>
+        </>
+      )}
     </main>
   );
 }
