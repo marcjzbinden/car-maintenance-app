@@ -16,6 +16,15 @@ const colors = {
   openBg: "#252526",
 };
 
+const actionBtnStyle: React.CSSProperties = {
+  padding: "8px 10px",
+  borderRadius: 10,
+  border: `1px solid ${colors.border}`,
+  background: colors.panel,
+  color: colors.text,
+  cursor: "pointer",
+  whiteSpace: "nowrap",
+};
 
 type VehicleRow = {
   id: string;
@@ -53,6 +62,13 @@ export default function VehicleDetailPage() {
   const [notes, setNotes] = useState("");
 
   const canAdd = useMemo(() => title.trim().length > 0, [title]);
+  const [editingItem, setEditingItem] = useState<MaintenanceRow | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+  const [editDueDate, setEditDueDate] = useState(""); // YYYY-MM-DD
+  const [editNotes, setEditNotes] = useState("");
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+
 
   async function loadAll() {
     const { data: vData, error: vErr } = await supabase
@@ -148,14 +164,69 @@ export default function VehicleDetailPage() {
 
     setItems((prev) => prev.map((x) => (x.id === id ? { ...x, completed_at: null } : x)));
   }
+  function openEdit(item: MaintenanceRow) {
+    setEditError(null);
+    setEditingItem(item);
+    setEditTitle(item.title);
+    setEditDueDate(item.due_date ?? "");
+    setEditNotes(item.notes ?? "");
+  }
+
+  function closeEdit() {
+    setEditingItem(null);
+    setEditTitle("");
+    setEditDueDate("");
+    setEditNotes("");
+    setEditError(null);
+  }
+
+  async function saveEdit() {
+    if (!editingItem) return;
+
+    const nextTitle = editTitle.trim();
+    if (!nextTitle) {
+      setEditError("Title is required.");
+      return;
+    }
+
+    setIsSavingEdit(true);
+
+    const payload = {
+      title: nextTitle,
+      due_date: editDueDate ? editDueDate : null,
+      notes: editNotes.trim() ? editNotes.trim() : null,
+    };
+
+    const { error } = await supabase
+      .from("maintenance_items")
+      .update(payload)
+      .eq("id", editingItem.id);
+
+    if (error) {
+      setEditError(error.message);
+      setIsSavingEdit(false);
+      return;
+    }
+
+    // Update local state (no reload needed)
+    setItems((prev) =>
+      prev.map((it) =>
+        it.id === editingItem.id ? { ...it, ...payload } : it
+      )
+    );
+
+    setIsSavingEdit(false);
+    closeEdit();
+  }
+
 function getStatus(item: MaintenanceRow) {
   if (item.completed_at) return "completed";
-  if (!item.due_date) return "open";
+  if (!item.due_date) return "unscheduled";
 
   const today = new Date();
   const due = new Date(item.due_date);
-today.setHours(0, 0, 0, 0);
-due.setHours(0, 0, 0, 0);
+  today.setHours(0, 0, 0, 0);
+  due.setHours(0, 0, 0, 0);
 
   if (due < today) return "overdue";
 
@@ -335,7 +406,8 @@ const done = status === "completed";
   {status === "overdue" && "Overdue"}
   {status === "upcoming" && "Due soon"}
   {status === "completed" && "Completed"}
-  {status === "open" && "Open"}
+  {status === "unscheduled" && "Unscheduled"}
+  {status === "open" && "Scheduled"}
 </div>
 
 
@@ -346,47 +418,184 @@ const done = status === "completed";
                     </div>
                   </div>
 
-                  {done ? (
-                    <button
-                      onClick={() => reopen(it.id)}
-                      style={{
-  padding: "8px 10px",
-  borderRadius: 10,
-  border: `1px solid ${colors.border}`,
-  background: colors.panel,
-  color: colors.text,
-  cursor: "pointer",
-  whiteSpace: "nowrap",
-}}
+                  
+<div style={{ display: "flex", gap: 8 }}>
+  <button
+    onClick={() => openEdit(it)}
+    style={{
+      padding: "8px 10px",
+      borderRadius: 10,
+      border: `1px solid ${colors.border}`,
+      background: colors.panel,
+      color: colors.text,
+      cursor: "pointer",
+      whiteSpace: "nowrap",
+    }}
+  >
+    Edit
+  </button>
+
+  {done ? (
+    <button
+      onClick={() => reopen(it.id)}
+      style={actionBtnStyle}
+    >
+      Reopen
+    </button>
+  ) : (
+    <button
+      onClick={() => markCompleted(it.id)}
+      style={actionBtnStyle}
+    >
+      Mark done
+    </button>
+  )}
+</div>
 
 
-                    >
-                      Reopen
-                    </button>
-                  ) : (
-                    <button
-                      onClick={() => markCompleted(it.id)}
-                      style={{
-  padding: "8px 10px",
-  borderRadius: 10,
-  border: `1px solid ${colors.border}`,
-  background: colors.panel,
-  color: colors.text,
-  cursor: "pointer",
-  whiteSpace: "nowrap",
-}}
-
-
-                    >
-                      Mark done
-                    </button>
-                  )}
                 </li>
               );
             })}
           </ul>
         )}
       </section>
+{editingItem && (
+  <div
+    style={{
+      position: "fixed",
+      inset: 0,
+      background: "rgba(0,0,0,0.6)",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      zIndex: 50,
+      padding: 16,
+    }}
+  >
+    <div
+      style={{
+        background: colors.panel,
+        border: `1px solid ${colors.border}`,
+        borderRadius: 12,
+        padding: 14,
+        width: "100%",
+        maxWidth: 520,
+        color: colors.text,
+      }}
+    >
+      <h3 style={{ marginTop: 0 }}>Edit maintenance</h3>
+
+      <label>
+        Title
+        <input
+          value={editTitle}
+          onChange={(e) => setEditTitle(e.target.value)}
+          style={{
+            display: "block",
+            width: "100%",
+            padding: 10,
+            borderRadius: 10,
+            border: `1px solid ${colors.border}`,
+            background: colors.bg,
+            color: colors.text,
+            marginTop: 6,
+          }}
+        />
+      </label>
+
+      <label style={{ marginTop: 10 }}>
+        Due date
+        <input
+          type="date"
+          value={editDueDate}
+          onChange={(e) => setEditDueDate(e.target.value)}
+          style={{
+            display: "block",
+            padding: 10,
+            borderRadius: 10,
+            border: `1px solid ${colors.border}`,
+            background: colors.bg,
+            color: colors.text,
+            marginTop: 6,
+          }}
+        />
+      </label>
+
+      <button
+        type="button"
+        onClick={() => setEditDueDate("")}
+        style={{
+          marginTop: 6,
+          padding: "6px 10px",
+          borderRadius: 8,
+          border: `1px solid ${colors.border}`,
+          background: colors.bg,
+          color: colors.text,
+          cursor: "pointer",
+        }}
+      >
+        Clear due date (Unscheduled)
+      </button>
+
+      <label style={{ marginTop: 10 }}>
+        Notes
+        <textarea
+          value={editNotes}
+          onChange={(e) => setEditNotes(e.target.value)}
+          style={{
+            display: "block",
+            width: "100%",
+            padding: 10,
+            borderRadius: 10,
+            border: `1px solid ${colors.border}`,
+            background: colors.bg,
+            color: colors.text,
+            marginTop: 6,
+            minHeight: 80,
+          }}
+        />
+      </label>
+
+      {editError && (
+        <div style={{ color: "#ff8080", marginTop: 8 }}>
+          {editError}
+        </div>
+      )}
+
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 14 }}>
+        <button
+          onClick={closeEdit}
+          style={{
+            padding: "8px 10px",
+            borderRadius: 10,
+            border: `1px solid ${colors.border}`,
+            background: colors.bg,
+            color: colors.text,
+            cursor: "pointer",
+          }}
+        >
+          Cancel
+        </button>
+
+        <button
+          onClick={saveEdit}
+          disabled={isSavingEdit}
+          style={{
+            padding: "8px 10px",
+            borderRadius: 10,
+            border: `1px solid ${colors.border}`,
+            background: colors.panel,
+            color: colors.text,
+            cursor: "pointer",
+          }}
+        >
+          {isSavingEdit ? "Saving…" : "Save"}
+        </button>
+      </div>
+    </div>
+  </div>
+)}
+
     </main>
   );
 }
