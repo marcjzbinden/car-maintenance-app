@@ -1,16 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { colors, pageStyle, panelStyle, inputStyle, buttonStyle, disabledButtonStyle } from "@/app/uiStyles";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
-
-const colors = {
-  bg: "#1e1e1e",
-  panel: "#252526",
-  border: "#3c3c3c",
-  text: "#e6e6e6",
-  muted: "#a0a0a0",
-};
 
 type Role = "member" | "owner";
 
@@ -48,51 +41,6 @@ export default function MembersPage() {
   }, [profiles]);
 
   const memberIds = useMemo(() => new Set(members.map((m) => m.user_id)), [members]);
-const pageStyle: CSSProperties = {
-  padding: 16,
-  fontFamily: "system-ui",
-  maxWidth: 820,
-  margin: "0 auto",
-  background: colors.bg,
-  color: colors.text,
-  minHeight: "100vh",
-};
-
-const panelStyle: CSSProperties = {
-  border: `1px solid ${colors.border}`,
-  background: colors.panel,
-  borderRadius: 12,
-  padding: 14,
-};
-
-const inputStyle: CSSProperties = {
-  display: "block",
-  width: "100%",
-  padding: 10,
-  borderRadius: 10,
-  border: `1px solid ${colors.border}`,
-  background: colors.bg,
-  color: colors.text,
-  marginTop: 6,
-};
-
-const buttonStyle: CSSProperties = {
-  padding: "8px 10px",
-  borderRadius: 10,
-  border: `1px solid ${colors.border}`,
-  background: colors.panel,
-  color: colors.text,
-  cursor: "pointer",
-  whiteSpace: "nowrap",
-};
-
-const disabledButtonStyle: CSSProperties = {
-  ...buttonStyle,
-  background: colors.bg,
-  color: colors.muted,
-  cursor: "not-allowed",
-};
-
   const availableProfiles = useMemo(() => {
     // Only show people not already in this garage
     return profiles.filter((p) => !memberIds.has(p.id));
@@ -267,7 +215,7 @@ if (checkErr) {
               <select
                 value={selectedUserId}
                 onChange={(e) => setSelectedUserId(e.target.value)}
-                style={{ display: "block", width: "100%", padding: 10, borderRadius: 10, border: "1px solid #ccc", marginTop: 6 }}
+                style={inputStyle}
               >
                 <option value="">Select a user…</option>
                 {availableProfiles.map((p) => (
@@ -284,7 +232,7 @@ if (checkErr) {
                 <select
                   value={newRole}
                   onChange={(e) => setNewRole(e.target.value as Role)}
-                  style={{ padding: 8, borderRadius: 10, border: "1px solid #ccc" }}
+                  style={inputStyle}
                 >
                   <option value="member">member</option>
                   <option value="owner">owner</option>
@@ -330,7 +278,7 @@ if (checkErr) {
                         value={m.role}
                         onChange={(e) => updateRole(m.user_id, e.target.value as Role)}
                         disabled={working}
-                        style={{ padding: 8, borderRadius: 10, border: "1px solid #ccc" }}
+                        style={inputStyle}
                       >
                         <option value="member">member</option>
                         <option value="owner">owner</option>

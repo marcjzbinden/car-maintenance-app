@@ -1,16 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { colors, pageStyle, panelStyle, inputStyle, buttonStyle, disabledButtonStyle } from "@/app/uiStyles";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 
-const colors = {
-  bg: "#1e1e1e",
-  panel: "#252526",
-  border: "#3c3c3c",
-  text: "#e6e6e6",
-  muted: "#a0a0a0",
-};
 
 type IdeaRow = {
   id: string;
@@ -36,51 +30,6 @@ export default function IdeasPage() {
   const [title, setTitle] = useState("");
   const [details, setDetails] = useState("");
   const canAdd = useMemo(() => title.trim().length > 0, [title]);
-
-  const pageStyle: CSSProperties = {
-    padding: 16,
-    fontFamily: "system-ui",
-    maxWidth: 820,
-    margin: "0 auto",
-    background: colors.bg,
-    color: colors.text,
-    minHeight: "100vh",
-  };
-
-  const panelStyle: CSSProperties = {
-    border: `1px solid ${colors.border}`,
-    background: colors.panel,
-    borderRadius: 12,
-    padding: 14,
-  };
-
-  const inputStyle: CSSProperties = {
-    display: "block",
-    width: "100%",
-    padding: 10,
-    borderRadius: 10,
-    border: `1px solid ${colors.border}`,
-    background: colors.bg,
-    color: colors.text,
-    marginTop: 6,
-  };
-
-  const buttonStyle: CSSProperties = {
-    padding: "8px 10px",
-    borderRadius: 10,
-    border: `1px solid ${colors.border}`,
-    background: colors.panel,
-    color: colors.text,
-    cursor: "pointer",
-    whiteSpace: "nowrap",
-  };
-
-  const disabledButtonStyle: CSSProperties = {
-    ...buttonStyle,
-    background: colors.bg,
-    color: colors.muted,
-    cursor: "not-allowed",
-  };
 
   async function loadIdeas(gid: string) {
     const { data, error } = await supabase

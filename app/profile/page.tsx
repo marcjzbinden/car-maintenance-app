@@ -3,10 +3,13 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import { colors, pageStyle, panelStyle, inputStyle, buttonStyle, disabledButtonStyle } from "@/app/uiStyles";
 
 export default function ProfilePage() {
   const router = useRouter();
+
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [displayName, setDisplayName] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
 
@@ -18,8 +21,7 @@ export default function ProfilePage() {
         return;
       }
 
-      const current =
-        (data.user.user_metadata as any)?.display_name ?? "";
+      const current = (data.user.user_metadata as any)?.display_name ?? "";
       setDisplayName(current);
       setLoading(false);
     })();
@@ -34,69 +36,60 @@ export default function ProfilePage() {
       return;
     }
 
+    setSaving(true);
     const { error } = await supabase.auth.updateUser({
       data: { display_name: name },
     });
 
     if (error) {
       setMsg(error.message);
+      setSaving(false);
       return;
     }
 
     setMsg("Saved!");
+    setSaving(false);
   }
 
   if (loading) {
     return (
-      <main style={{ padding: 16, fontFamily: "system-ui" }}>
-        <p>Loading…</p>
+      <main style={pageStyle}>
+        <p style={{ opacity: 0.8 }}>Loading…</p>
       </main>
     );
   }
 
   return (
-    <main
-      style={{
-        padding: 16,
-        fontFamily: "system-ui",
-        maxWidth: 520,
-        margin: "0 auto",
-      }}
-    >
-      <h1 style={{ fontSize: 24, marginBottom: 12 }}>Profile</h1>
+    <main style={pageStyle}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
+        <h1 style={{ fontSize: 28, margin: 0 }}>Profile</h1>
 
-      <label>
-        Display Name
-        <input
-          value={displayName}
-          onChange={(e) => setDisplayName(e.target.value)}
-          placeholder="Marc, Jacob, Emma..."
-          style={{
-            display: "block",
-            width: "100%",
-            padding: 10,
-            borderRadius: 10,
-            border: "1px solid #ccc",
-            marginTop: 6,
-          }}
-        />
-      </label>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={() => router.push("/")} style={buttonStyle}>
+            ← Back
+          </button>
+        </div>
+      </div>
 
-      <button
-        onClick={save}
-        style={{
-          marginTop: 12,
-          padding: "10px 14px",
-          borderRadius: 10,
-          border: "1px solid #ccc",
-          background: "#fff",
-          cursor: "pointer",
-        }}
-      >
-        Save
-      </button>
+      <section style={{ ...panelStyle, marginTop: 14, maxWidth: 520 }}>
+        <label>
+          Display name
+          <input
+            value={displayName}
+            onChange={(e) => setDisplayName(e.target.value)}
+            placeholder="Marc, Jacob, Emma..."
+            style={inputStyle}
+          />
+        </label>
 
-      {msg && <p style={{ marginTop: 10 }}>{msg}</p>}
+        <div style={{ display: "flex", gap: 10, marginTop: 12, alignItems: "center", flexWrap: "wrap" }}>
+          <button onClick={save} disabled={saving} style={saving ? disabledButtonStyle : buttonStyle}>
+            {saving ? "Saving..." : "Save"}
+          </button>
+
+          {msg && <span style={{ color: msg === "Saved!" ? colors.muted : "#ff8080" }}>{msg}</span>}
+        </div>
+      </section>
     </main>
   );
 }
