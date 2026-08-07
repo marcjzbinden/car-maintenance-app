@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { colors, pageStyle, panelStyle, inputStyle, buttonStyle, disabledButtonStyle } from "@/app/uiStyles";
+import { colors, panelStyle, inputStyle, buttonStyle, disabledButtonStyle } from "@/app/uiStyles";
+import { AppShell, PageHeader } from "@/components/ui";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 
@@ -23,6 +24,7 @@ export default function IdeasPage() {
   const [saving, setSaving] = useState(false);
 
   const [userId, setUserId] = useState<string | null>(null);
+  const [displayName, setDisplayName] = useState("");
   const [garageId, setGarageId] = useState<string | null>(null);
 
   const [ideas, setIdeas] = useState<IdeaRow[]>([]);
@@ -59,6 +61,11 @@ export default function IdeasPage() {
 
         if (!isMounted) return;
         setUserId(u.id);
+        setDisplayName(
+          typeof u.user_metadata?.display_name === "string"
+            ? u.user_metadata.display_name
+            : "",
+        );
 
         // Active garage (first membership for now)
         const { data: memberships, error: mErr } = await supabase
@@ -146,23 +153,19 @@ export default function IdeasPage() {
 
   if (loading) {
     return (
-      <main style={pageStyle}>
+      <AppShell contentWidth="narrow">
         <p>Loading…</p>
-      </main>
+      </AppShell>
     );
   }
 
   return (
-    <main style={pageStyle}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
-        <h1 style={{ fontSize: 28, margin: 0 }}>Future Ideas</h1>
-
-        <div style={{ display: "flex", gap: 8 }}>
-          <button onClick={() => router.push("/")} style={buttonStyle}>
-            ← Back
-          </button>
-        </div>
-      </div>
+    <AppShell authenticated displayName={displayName} contentWidth="narrow">
+      <PageHeader
+        eyebrow="Garage"
+        title="Future ideas"
+        description="Keep track of improvements and projects for your digital glovebox."
+      />
 
       <section style={{ ...panelStyle, marginTop: 14 }}>
         <h2 style={{ fontSize: 18, marginBottom: 10 }}>Add Idea</h2>
@@ -240,6 +243,6 @@ export default function IdeasPage() {
           </ul>
         )}
       </section>
-    </main>
+    </AppShell>
   );
 }

@@ -1,8 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
+import { AppShell, PageHeader } from "@/components/ui";
 import { supabase } from "@/lib/supabaseClient";
+import styles from "./vehicle-detail.module.css";
 
 const colors = {
   bg: "#1e1e1e",
@@ -53,6 +56,7 @@ export default function VehicleDetailPage() {
 
   const [loading, setLoading] = useState(true);
   const [userId, setUserId] = useState<string | null>(null);
+  const [displayName, setDisplayName] = useState("");
 
   const [vehicle, setVehicle] = useState<VehicleRow | null>(null);
   const [items, setItems] = useState<MaintenanceRow[]>([]);
@@ -99,6 +103,11 @@ export default function VehicleDetailPage() {
           return;
         }
         setUserId(data.user.id);
+        setDisplayName(
+          typeof data.user.user_metadata?.display_name === "string"
+            ? data.user.user_metadata.display_name
+            : "",
+        );
 
         await loadAll();
       } catch (e: any) {
@@ -240,65 +249,39 @@ function getStatus(item: MaintenanceRow) {
 
   if (loading) {
     return (
-<main style={{ padding: 16, fontFamily: "system-ui", background: colors.bg, color: colors.text, minHeight: "100vh" }}>
-
+      <AppShell contentWidth="narrow">
         <p>Loading…</p>
-      </main>
+      </AppShell>
     );
   }
 
   if (!vehicle) {
     return (
-<main style={{ padding: 16, fontFamily: "system-ui", background: colors.bg, color: colors.text, minHeight: "100vh" }}>
+      <AppShell authenticated displayName={displayName} contentWidth="narrow">
+        <PageHeader
+          eyebrow={
+            <Link href="/" className={styles.backLink}>
+              ← Vehicles
+            </Link>
+          }
+          title="Vehicle not found"
+        />
         <p>Vehicle not found.</p>
-        <button
-          onClick={() => router.push("/")}
-          style={{
-  marginTop: 10,
-  padding: "10px 14px",
-  borderRadius: 10,
-  border: `1px solid ${colors.border}`,
-  background: colors.panel,
-  color: colors.text,
-  cursor: "pointer",
-}}
-
-        >
-          Back
-        </button>
-      </main>
+      </AppShell>
     );
   }
 
   return (
-<main
-  style={{
-    padding: 16,
-    fontFamily: "system-ui",
-    maxWidth: 820,
-    margin: "0 auto",
-    background: colors.bg,
-    color: colors.text,
-    minHeight: "100vh",
-  }}
->
-
-      <button
-        onClick={() => router.push("/")}
-        style={{ padding: "8px 10px", borderRadius: 10, border: `1px solid ${colors.border}`,
-background: colors.panel,
-color: colors.text,
- cursor: "pointer" }}
-      >
-        ← Back
-      </button>
-
-      <h1 style={{ fontSize: 26, marginTop: 12 }}>
-        {vehicle.nickname}
-        <span style={{ opacity: 0.7, fontSize: 16, marginLeft: 8 }}>
-          {[vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(" ")}
-        </span>
-      </h1>
+    <AppShell authenticated displayName={displayName} contentWidth="narrow">
+      <PageHeader
+        eyebrow={
+          <Link href="/" className={styles.backLink}>
+            ← Vehicles
+          </Link>
+        }
+        title={vehicle.nickname}
+        description={[vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(" ") || "Vehicle details"}
+      />
 
       <section style={{ border: `1px solid ${colors.border}`,
 background: colors.panel,
@@ -596,6 +579,6 @@ const done = status === "completed";
   </div>
 )}
 
-    </main>
+    </AppShell>
   );
 }

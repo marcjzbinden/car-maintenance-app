@@ -12,6 +12,202 @@
   padding: var(--space-6) var(--page-gutter) var(--space-10);
 }
 
+.shellContentNarrow {
+  max-width: 52rem;
+}
+
+.appHeader {
+  position: relative;
+  z-index: 20;
+  border-bottom: 1px solid var(--color-border);
+  background: rgba(17, 19, 21, 0.9);
+  backdrop-filter: blur(18px);
+}
+
+.appHeaderInner {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  width: min(100%, var(--content-max-width));
+  min-height: 4rem;
+  margin: 0 auto;
+  padding: 0 var(--page-gutter);
+}
+
+.appBrand {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  gap: var(--space-2);
+  color: var(--color-text-strong);
+  font-size: var(--font-size-sm);
+  font-weight: 750;
+  text-decoration: none;
+}
+
+.appBrandMark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid var(--color-border-interactive);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+  color: var(--color-accent);
+  font-size: 0.68rem;
+  letter-spacing: 0.04em;
+}
+
+.appBrand:focus-visible,
+.appNavLink:focus-visible,
+.appMenuTrigger:focus-visible,
+.appSignOutButton:focus-visible {
+  border-radius: var(--radius-sm);
+  outline: 3px solid var(--color-focus-ring);
+  outline-offset: 3px;
+}
+
+.appDesktopNav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+}
+
+.appNavLink {
+  display: flex;
+  align-items: center;
+  min-height: 2.5rem;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-md);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  font-weight: 650;
+  text-decoration: none;
+  transition:
+    background-color var(--transition-fast),
+    color var(--transition-fast);
+}
+
+.appNavLink:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text-strong);
+}
+
+.appNavLinkActive {
+  background: var(--color-surface-raised);
+  color: var(--color-text-strong);
+}
+
+.appNavMobileOnly {
+  display: none;
+}
+
+.appMenuRoot {
+  position: relative;
+  justify-self: end;
+}
+
+.appMenuTrigger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 2.5rem;
+  padding: 0.25rem 0.55rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--color-text-strong);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: 650;
+  cursor: pointer;
+  transition:
+    background-color var(--transition-fast),
+    border-color var(--transition-fast);
+}
+
+.appMenuTrigger:hover,
+.appMenuTrigger[aria-expanded="true"] {
+  border-color: var(--color-border);
+  background: var(--color-surface-raised);
+}
+
+.appMenuAvatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.8rem;
+  height: 1.8rem;
+  border-radius: 50%;
+  background: var(--color-accent);
+  color: var(--color-accent-contrast);
+  font-size: var(--font-size-xs);
+  font-weight: 800;
+}
+
+.appMenuChevron {
+  color: var(--color-text-muted);
+  transition: transform var(--transition-fast);
+}
+
+.appMenuTrigger[aria-expanded="true"] .appMenuChevron {
+  transform: rotate(180deg);
+}
+
+.appMenuPanel {
+  position: absolute;
+  top: calc(100% + var(--space-2));
+  right: 0;
+  display: none;
+  width: min(17rem, calc(100vw - (2 * var(--page-gutter))));
+  padding: var(--space-2);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-raised);
+  box-shadow: var(--shadow-card);
+}
+
+.appMenuPanelOpen {
+  display: block;
+}
+
+.appMenuLinks {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.appMenuDivider {
+  height: 1px;
+  margin: var(--space-2) 0;
+  background: var(--color-border);
+}
+
+.appSignOutButton {
+  width: 100%;
+  min-height: 2.5rem;
+  padding: 0 var(--space-3);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-danger-text);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: 650;
+  text-align: left;
+  cursor: pointer;
+}
+
+.appSignOutButton:hover:not(:disabled) {
+  background: var(--color-danger-surface);
+}
+
+.appSignOutButton:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
 .pageHeader {
   display: flex;
   align-items: flex-start;
@@ -232,6 +428,26 @@
 }
 
 @media (max-width: 640px) {
+  .appHeaderInner {
+    grid-template-columns: 1fr auto;
+  }
+
+  .appDesktopNav {
+    display: none;
+  }
+
+  .appNavMobileOnly {
+    display: flex;
+  }
+
+  .appMenuPanel {
+    position: fixed;
+    top: 4.5rem;
+    right: var(--page-gutter);
+    left: var(--page-gutter);
+    width: auto;
+  }
+
   .shellContent {
     padding-top: var(--space-4);
   }
@@ -248,7 +464,10 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .button {
+  .button,
+  .appNavLink,
+  .appMenuTrigger,
+  .appMenuChevron {
     transition: none;
   }
 }

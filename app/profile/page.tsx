@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
-import { colors, pageStyle, panelStyle, inputStyle, buttonStyle, disabledButtonStyle } from "@/app/uiStyles";
+import { colors, panelStyle, inputStyle, buttonStyle, disabledButtonStyle } from "@/app/uiStyles";
+import { AppShell, PageHeader } from "@/components/ui";
 
 export default function ProfilePage() {
   const router = useRouter();
@@ -53,23 +54,19 @@ export default function ProfilePage() {
 
   if (loading) {
     return (
-      <main style={pageStyle}>
+      <AppShell contentWidth="narrow">
         <p style={{ opacity: 0.8 }}>Loading…</p>
-      </main>
+      </AppShell>
     );
   }
 
   return (
-    <main style={pageStyle}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
-        <h1 style={{ fontSize: 28, margin: 0 }}>Profile</h1>
-
-        <div style={{ display: "flex", gap: 8 }}>
-          <button onClick={() => router.push("/")} style={buttonStyle}>
-            ← Back
-          </button>
-        </div>
-      </div>
+    <AppShell authenticated displayName={displayName} contentWidth="narrow">
+      <PageHeader
+        eyebrow="Account"
+        title="Profile"
+        description="Choose the name shown around your digital glovebox."
+      />
 
       <section style={{ ...panelStyle, marginTop: 14, maxWidth: 520 }}>
         <label>
@@ -90,6 +87,6 @@ export default function ProfilePage() {
           {msg && <span style={{ color: msg === "Saved!" ? colors.muted : "#ff8080" }}>{msg}</span>}
         </div>
       </section>
-    </main>
+    </AppShell>
   );
 }

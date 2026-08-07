@@ -238,11 +238,6 @@ export default function Home() {
     void addVehicle();
   }
 
-  async function signOut() {
-    await supabase.auth.signOut();
-    router.replace("/login");
-  }
-
   const vehicleName = (id: string) =>
     vehicles.find((vehicle) => vehicle.id === id)?.nickname ?? "Vehicle";
 
@@ -255,27 +250,11 @@ export default function Home() {
   }
 
   return (
-    <AppShell>
+    <AppShell authenticated displayName={displayName}>
       <PageHeader
         eyebrow={activeGarageName}
         title="Your digital glovebox"
         description={displayName ? `Welcome back, ${displayName}.` : "Vehicles and maintenance, all in one place."}
-        actions={
-          <nav className={styles.headerActions} aria-label="Account and garage navigation">
-            <Button size="sm" variant="ghost" onClick={() => router.push("/profile")}>
-              Profile
-            </Button>
-            <Button size="sm" variant="ghost" onClick={() => router.push("/members")}>
-              Members
-            </Button>
-            <Button size="sm" variant="ghost" onClick={() => router.push("/ideas")}>
-              Ideas
-            </Button>
-            <Button size="sm" variant="secondary" onClick={signOut}>
-              Sign out
-            </Button>
-          </nav>
-        }
       />
 
       <section aria-labelledby="vehicles-heading">

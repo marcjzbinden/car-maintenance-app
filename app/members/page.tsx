@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { colors, pageStyle, panelStyle, inputStyle, buttonStyle, disabledButtonStyle } from "@/app/uiStyles";
+import { panelStyle, inputStyle, buttonStyle, disabledButtonStyle } from "@/app/uiStyles";
+import { AppShell, PageHeader } from "@/components/ui";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 
@@ -22,6 +23,7 @@ export default function MembersPage() {
   const router = useRouter();
 
   const [garageId, setGarageId] = useState<string | null>(null);
+  const [displayName, setDisplayName] = useState("");
 
   const [profiles, setProfiles] = useState<ProfileRow[]>([]);
   const [members, setMembers] = useState<GarageMemberRow[]>([]);
@@ -56,6 +58,12 @@ export default function MembersPage() {
         router.replace("/login");
         return;
       }
+
+      setDisplayName(
+        typeof data.user.user_metadata?.display_name === "string"
+          ? data.user.user_metadata.display_name
+          : "",
+      );
 
       // Discover garage_id from current user's membership row
       const { data: memberships, error: memErr } = await supabase
@@ -194,16 +202,12 @@ if (checkErr) {
   }
 
   return (
-<main style={pageStyle}>
-   <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
-      <h1 style={{ fontSize: 28, margin: 0 }}>Garage Members</h1>
-
-      <div style={{ display: "flex", gap: 8 }}>
-        <button onClick={() => router.push("/")} style={buttonStyle}>
-            ← Back
-          </button>
-        </div>
-    </div>
+<AppShell authenticated displayName={displayName} contentWidth="narrow">
+      <PageHeader
+        eyebrow="Garage"
+        title="Garage members"
+        description="Manage the people who can access this digital glovebox."
+      />
       {loading ? (
         <p style={{ opacity: 0.8 }}>Loading…</p>
       ) : (
@@ -291,6 +295,6 @@ if (checkErr) {
           </section>
         </>
       )}
-    </main>
+    </AppShell>
   );
 }
