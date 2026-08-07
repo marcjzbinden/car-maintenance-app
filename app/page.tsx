@@ -1,19 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { AppShell, Button, Card, PageHeader, StatusBadge } from "@/components/ui";
+import { VehicleCard } from "@/components/vehicles/VehicleCard";
 import { supabase } from "@/lib/supabaseClient";
-const colors = {
-  bg: "#1e1e1e",
-  panel: "#252526",
-  border: "#3c3c3c",
-  text: "#e6e6e6",
-  muted: "#a0a0a0",
+import styles from "./dashboard.module.css";
 
-  overdueBg: "#4b1e1e",
-  upcomingBg: "#4a3b1a",
-  openBg: "#252526",
-};
 type VehicleRow = {
   id: string;
   garage_id: string;
@@ -24,111 +18,25 @@ type VehicleRow = {
   model: string | null;
   created_at: string;
 };
+
 type MaintenanceRow = {
   id: string;
   vehicle_id: string;
   title: string;
-  due_date: string | null;       // YYYY-MM-DD
-  completed_at: string | null;   // ISO timestamp
+  due_date: string | null;
+  completed_at: string | null;
   notes: string | null;
   created_at: string;
 };
 
+type MaintenanceStatus = "completed" | "overdue" | "upcoming" | "open";
 
-export default function Home() {
-const [displayName, setDisplayName] = useState<string>("");
-const [maintItems, setMaintItems] = useState<MaintenanceRow[]>([]);
-const [maintLoading, setMaintLoading] = useState(false);
-const router = useRouter();
-const [userId, setUserId] = useState<string | null>(null);
-const [loading, setLoading] = useState(true);
-const [vehicles, setVehicles] = useState<VehicleRow[]>([]);
-const [nickname, setNickname] = useState("");
-const [year, setYear] = useState("");
-const [make, setMake] = useState("");
-const [model, setModel] = useState("");
-const canAdd = useMemo(() => nickname.trim().length > 0, [nickname]);
-const [activeGarageId, setActiveGarageId] = useState<string | null>(null);
-const [activeGarageName, setActiveGarageName] = useState<string>("Garage");
-const pageStyle: CSSProperties = {
-  padding: 16,
-  fontFamily: "system-ui",
-  maxWidth: 720,
-  margin: "0 auto",
-  background: colors.bg,
-  color: colors.text,
-  minHeight: "100vh",
-};
-
-const panelStyle: CSSProperties = {
-  border: `1px solid ${colors.border}`,
-  background: colors.panel,
-  borderRadius: 12,
-  padding: 14,
-};
-
-const inputStyle: CSSProperties = {
-  display: "block",
-  width: "100%",
-  padding: 10,
-  borderRadius: 10,
-  border: `1px solid ${colors.border}`,
-  background: colors.bg,
-  color: colors.text,
-  marginTop: 6,
-};
-
-const buttonStyle: CSSProperties = {
-  padding: "8px 10px",
-  borderRadius: 10,
-  border: `1px solid ${colors.border}`,
-  background: colors.panel,
-  color: colors.text,
-  cursor: "pointer",
-  whiteSpace: "nowrap",
-};
-
-const smallButtonStyle: CSSProperties = {
-  ...buttonStyle,
-  padding: "8px 10px",
-};
-
-const disabledButtonStyle: CSSProperties = {
-  ...buttonStyle,
-  background: colors.bg,
-  color: colors.muted,
-  cursor: "not-allowed",
-};
-
-const vehicleCardStyle: CSSProperties = {
-  border: `1px solid ${colors.border}`,
-  background: colors.panel,
-  borderRadius: 12,
-  padding: 12,
-  display: "flex",
-  justifyContent: "space-between",
-  gap: 12,
-  alignItems: "center",
-};
-
-async function loadVehicles(garageId: string) {
-  const { data, error } = await supabase
-    .from("vehicles")
-    .select("*")
-    .eq("garage_id", garageId)
-    .order("created_at", { ascending: false });
-
-  if (error) throw error;
-  setVehicles((data ?? []) as VehicleRow[]);
-}
-
-// Paste helper functions here
- function getStatus(it: MaintenanceRow) {
-  if (it.completed_at) return "completed";
-  if (!it.due_date) return "open";
+function getStatus(item: MaintenanceRow): MaintenanceStatus {
+  if (item.completed_at) return "completed";
+  if (!item.due_date) return "open";
 
   const today = new Date();
-  const due = new Date(it.due_date);
+  const due = new Date(item.due_date);
   today.setHours(0, 0, 0, 0);
   due.setHours(0, 0, 0, 0);
 
@@ -141,114 +49,174 @@ async function loadVehicles(garageId: string) {
   return "open";
 }
 
-async function loadDashboardMaintenance(garageId: string) {
-  setMaintLoading(true);
-  try {
-    // 1) get vehicle ids for this garage
-    const { data: vData, error: vErr } = await supabase
-      .from("vehicles")
-      .select("id")
-      .eq("garage_id", garageId);
+function getErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "Something went wrong.";
+}
 
-    if (vErr) throw vErr;
+export default function Home() {
+  const router = useRouter();
+  const [displayName, setDisplayName] = useState("");
+  const [maintItems, setMaintItems] = useState<MaintenanceRow[]>([]);
+  const [maintLoading, setMaintLoading] = useState(false);
+  const [userId, setUserId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [vehicles, setVehicles] = useState<VehicleRow[]>([]);
+  const [nickname, setNickname] = useState("");
+  const [year, setYear] = useState("");
+  const [make, setMake] = useState("");
+  const [model, setModel] = useState("");
+  const [showAddVehicle, setShowAddVehicle] = useState(false);
+  const [activeGarageId, setActiveGarageId] = useState<string | null>(null);
+  const [activeGarageName, setActiveGarageName] = useState("Garage");
 
-    const vehicleIds = (vData ?? []).map((v: any) => v.id);
+  const canAdd = useMemo(() => nickname.trim().length > 0, [nickname]);
 
-    if (vehicleIds.length === 0) {
-      setMaintItems([]);
-      return;
+  const maintenanceCounts = useMemo(() => {
+    const counts = new Map<string, { overdue: number; upcoming: number }>();
+
+    for (const item of maintItems) {
+      const current = counts.get(item.vehicle_id) ?? { overdue: 0, upcoming: 0 };
+      const status = getStatus(item);
+
+      if (status === "overdue") current.overdue += 1;
+      if (status === "upcoming") current.upcoming += 1;
+      counts.set(item.vehicle_id, current);
     }
 
-    // 2) get maintenance items for those vehicles
-    const { data: mData, error: mErr } = await supabase
-      .from("maintenance_items")
-      .select("id, vehicle_id, title, due_date, completed_at, notes, created_at")
-      .in("vehicle_id", vehicleIds)
+    return counts;
+  }, [maintItems]);
+
+  const flaggedMaintenance = useMemo(
+    () =>
+      maintItems.filter((item) => {
+        const status = getStatus(item);
+        return status === "overdue" || status === "upcoming";
+      }),
+    [maintItems],
+  );
+
+  const maintenanceByVehicle = useMemo(
+    () =>
+      flaggedMaintenance.reduce<Record<string, MaintenanceRow[]>>((groups, item) => {
+        (groups[item.vehicle_id] ||= []).push(item);
+        return groups;
+      }, {}),
+    [flaggedMaintenance],
+  );
+
+  async function loadVehicles(garageId: string) {
+    const { data, error } = await supabase
+      .from("vehicles")
+      .select("*")
+      .eq("garage_id", garageId)
       .order("created_at", { ascending: false });
 
-    if (mErr) throw mErr;
-
-    setMaintItems((mData ?? []) as MaintenanceRow[]);
-  } finally {
-    setMaintLoading(false);
+    if (error) throw error;
+    setVehicles((data ?? []) as VehicleRow[]);
   }
-}
 
-  useEffect(() => {
-  let isMounted = true;
-
-  (async () => {
+  async function loadDashboardMaintenance(garageId: string) {
+    setMaintLoading(true);
     try {
-      // 1) Ensure user is signed in (no scary alert in prod)
-const { data: sessionData, error: sErr } = await supabase.auth.getSession();
-if (sErr) throw sErr;
+      const { data: vehicleData, error: vehicleError } = await supabase
+        .from("vehicles")
+        .select("id")
+        .eq("garage_id", garageId);
 
-const session = sessionData.session;
-if (!session?.user) {
-  router.replace("/login");
-  return;
-}
+      if (vehicleError) throw vehicleError;
 
-const u = session.user;
+      const vehicleIds = (vehicleData ?? []).map((vehicle: { id: string }) => vehicle.id);
 
-
-      if (!isMounted) return;
-      setUserId(u.id);
-      setDisplayName((u.user_metadata as any)?.display_name ?? "");
-
-
-      // 2) Load garage memberships (keep it simple first)
-      const { data: memberships, error: mErr } = await supabase
-        .from("garage_members")
-        .select("garage_id, role")
-        .eq("user_id", u.id);
-
-      if (mErr) throw mErr;
-
-      if (!memberships || memberships.length === 0) {
-        alert("No garage membership found for this user.");
-        router.replace("/login");
+      if (vehicleIds.length === 0) {
+        setMaintItems([]);
         return;
       }
 
-      const activeGarageId = memberships[0].garage_id;
+      const { data: maintenanceData, error: maintenanceError } = await supabase
+        .from("maintenance_items")
+        .select("id, vehicle_id, title, due_date, completed_at, notes, created_at")
+        .in("vehicle_id", vehicleIds)
+        .order("created_at", { ascending: false });
 
-      if (!isMounted) return;
-      setActiveGarageId(activeGarageId);
-      setActiveGarageName("Garage"); // optional; we’ll add real name later
-
-      // 3) Load vehicles for this garage
-      await loadVehicles(activeGarageId);
-      await loadDashboardMaintenance(activeGarageId);
-
-    } catch (e: any) {
-      // show something while we stabilize
-      console.error("Home load failed:", e);
-      alert(e?.message ?? "Home load failed (see console).");
-      router.replace("/login");
+      if (maintenanceError) throw maintenanceError;
+      setMaintItems((maintenanceData ?? []) as MaintenanceRow[]);
     } finally {
-      if (isMounted) setLoading(false);
+      setMaintLoading(false);
     }
-  })();
+  }
 
-  return () => {
-    isMounted = false;
-  };
-}, [router]);
+  useEffect(() => {
+    let isMounted = true;
+
+    (async () => {
+      try {
+        const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+        if (sessionError) throw sessionError;
+
+        const session = sessionData.session;
+        if (!session?.user) {
+          router.replace("/login");
+          return;
+        }
+
+        const user = session.user;
+        if (!isMounted) return;
+
+        setUserId(user.id);
+        setDisplayName(
+          typeof user.user_metadata?.display_name === "string"
+            ? user.user_metadata.display_name
+            : "",
+        );
+
+        const { data: memberships, error: membershipError } = await supabase
+          .from("garage_members")
+          .select("garage_id, role")
+          .eq("user_id", user.id);
+
+        if (membershipError) throw membershipError;
+
+        if (!memberships || memberships.length === 0) {
+          alert("No garage membership found for this user.");
+          router.replace("/login");
+          return;
+        }
+
+        const garageId = memberships[0].garage_id;
+        if (!isMounted) return;
+
+        setActiveGarageId(garageId);
+        setActiveGarageName("Garage");
+
+        await loadVehicles(garageId);
+        await loadDashboardMaintenance(garageId);
+      } catch (error: unknown) {
+        console.error("Home load failed:", error);
+        alert(getErrorMessage(error));
+        router.replace("/login");
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    })();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [router]);
 
   async function addVehicle() {
-  if (!canAdd || !userId || !activeGarageId) return;
+    if (!canAdd || !userId || !activeGarageId) return;
 
-const payload = {
-  garage_id: activeGarageId,
-  created_by: userId, // matches policy: created_by = auth.uid()
-  nickname: nickname.trim(),
-  year: year.trim() || null,
-  make: make.trim() || null,
-  model: model.trim() || null,
-};
+    const payload = {
+      garage_id: activeGarageId,
+      created_by: userId,
+      nickname: nickname.trim(),
+      year: year.trim() || null,
+      make: make.trim() || null,
+      model: model.trim() || null,
+    };
 
-const { error } = await supabase.from("vehicles").insert(payload);
+    const { error } = await supabase.from("vehicles").insert(payload);
 
     if (error) {
       alert(error.message);
@@ -259,19 +227,15 @@ const { error } = await supabase.from("vehicles").insert(payload);
     setYear("");
     setMake("");
     setModel("");
+    setShowAddVehicle(false);
 
-await loadVehicles(activeGarageId);
-await loadDashboardMaintenance(activeGarageId);
+    await loadVehicles(activeGarageId);
+    await loadDashboardMaintenance(activeGarageId);
   }
 
-  async function removeVehicle(id: string) {
-    const { error } = await supabase.from("vehicles").delete().eq("id", id);
-    if (error) {
-      alert(error.message);
-      return;
-    }
-    setVehicles((prev) => prev.filter((v) => v.id !== id));
-    if (activeGarageId) await loadDashboardMaintenance(activeGarageId);
+  function submitVehicle(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    void addVehicle();
   }
 
   async function signOut() {
@@ -279,206 +243,210 @@ await loadDashboardMaintenance(activeGarageId);
     router.replace("/login");
   }
 
+  const vehicleName = (id: string) =>
+    vehicles.find((vehicle) => vehicle.id === id)?.nickname ?? "Vehicle";
+
   if (loading) {
     return (
-      <main style={{ padding: 16, fontFamily: "system-ui" }}>
-        <p>Loading…</p>
-      </main>
+      <AppShell>
+        <p className={styles.loading}>Loading your garage…</p>
+      </AppShell>
     );
   }
 
   return (
-<main style={pageStyle}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
-        <h1 style={{ fontSize: 28, marginBottom: 8 }}>
-  Car Maintenance Tracker - {activeGarageName}
-  {displayName ? (
-    <span style={{ fontSize: 14, marginLeft: 10, opacity: 0.75 }}>
-      Welcome, {displayName}
-    </span>
-  ) : null}
-</h1>
+    <AppShell>
+      <PageHeader
+        eyebrow={activeGarageName}
+        title="Your digital glovebox"
+        description={displayName ? `Welcome back, ${displayName}.` : "Vehicles and maintenance, all in one place."}
+        actions={
+          <nav className={styles.headerActions} aria-label="Account and garage navigation">
+            <Button size="sm" variant="ghost" onClick={() => router.push("/profile")}>
+              Profile
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => router.push("/members")}>
+              Members
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => router.push("/ideas")}>
+              Ideas
+            </Button>
+            <Button size="sm" variant="secondary" onClick={signOut}>
+              Sign out
+            </Button>
+          </nav>
+        }
+      />
 
-<div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-  <button
-    onClick={() => router.push("/profile")}
-    style={buttonStyle}
-  >
-    Profile
-  </button>
+      <section aria-labelledby="vehicles-heading">
+        <div className={styles.sectionHeader}>
+          <div>
+            <h2 id="vehicles-heading" className={styles.sectionTitle}>
+              Vehicles
+            </h2>
+            <p className={styles.sectionDescription}>
+              Open a vehicle to view its maintenance history and upcoming work.
+            </p>
+          </div>
+          <Button
+            variant="primary"
+            aria-expanded={showAddVehicle}
+            aria-controls="add-vehicle-panel"
+            onClick={() => setShowAddVehicle((current) => !current)}
+          >
+            {showAddVehicle ? "Close" : "+ Add Vehicle"}
+          </Button>
+        </div>
 
-  <button
-    onClick={() => router.push("/members")}
-    style={buttonStyle}
-  >
-    Members
-  </button>
-<button
-  onClick={() => router.push("/ideas")}
-  style={buttonStyle}
->
-  Ideas
-</button>
+        {showAddVehicle ? (
+          <Card
+            id="add-vehicle-panel"
+            tone="subtle"
+            padding="lg"
+            className={styles.addVehiclePanel}
+          >
+            <div className={styles.formHeader}>
+              <h3 className={styles.formTitle}>Add a vehicle</h3>
+              <p className={styles.formDescription}>
+                A nickname is all you need to get started.
+              </p>
+            </div>
 
-  <button
-    onClick={signOut}
-    style={buttonStyle}
-  >
-    Sign out
-  </button>
-</div>
-</div>
-<section style={{ ...panelStyle, marginBottom: 18 }}>
+            <form onSubmit={submitVehicle}>
+              <div className={styles.formGrid}>
+                <label className={`${styles.label} ${styles.fieldFull}`}>
+                  Nickname
+                  <input
+                    autoFocus
+                    required
+                    value={nickname}
+                    onChange={(event) => setNickname(event.target.value)}
+                    placeholder="Integra, F-150, Jeep…"
+                    className={styles.input}
+                  />
+                </label>
 
-  <h2 style={{ fontSize: 18, marginBottom: 10 }}>Garage Dashboard</h2>
+                <label className={styles.label}>
+                  Year <span className={styles.optional}>(optional)</span>
+                  <input
+                    value={year}
+                    onChange={(event) => setYear(event.target.value)}
+                    placeholder="1998"
+                    inputMode="numeric"
+                    className={styles.input}
+                  />
+                </label>
 
-  {maintLoading ? (
-    <p style={{ opacity: 0.7 }}>Loading maintenance…</p>
-  ) : (() => {
-      const flagged = maintItems.filter((it) => {
-        const s = getStatus(it);
-        return s === "overdue" || s === "upcoming";
-      });
+                <label className={styles.label}>
+                  Make <span className={styles.optional}>(optional)</span>
+                  <input
+                    value={make}
+                    onChange={(event) => setMake(event.target.value)}
+                    placeholder="Acura"
+                    className={styles.input}
+                  />
+                </label>
 
-      if (flagged.length === 0) {
-        return <p style={{ opacity: 0.7 }}>Nothing overdue or due soon. Nice work.</p>;
-      }
-
-      // group by vehicle_id
-      const byVehicle = flagged.reduce((acc: Record<string, MaintenanceRow[]>, it) => {
-        (acc[it.vehicle_id] ||= []).push(it);
-        return acc;
-      }, {});
-
-      // helper to show vehicle nickname
-      const vehicleName = (id: string) =>
-        vehicles.find((v) => v.id === id)?.nickname ?? "Vehicle";
-
-      return (
-        <div style={{ display: "grid", gap: 12 }}>
-          {Object.entries(byVehicle).map(([vid, list]) => (
-              <div key={vid} style={{ ...panelStyle, padding: 12 }}>
-              <div
-                onClick={() => router.push(`/vehicle/${vid}`)}
-                style={{ fontWeight: 800, cursor: "pointer", textDecoration: "underline" }}
-              >
-                {vehicleName(vid)}
+                <label className={`${styles.label} ${styles.fieldFull}`}>
+                  Model <span className={styles.optional}>(optional)</span>
+                  <input
+                    value={model}
+                    onChange={(event) => setModel(event.target.value)}
+                    placeholder="Integra"
+                    className={styles.input}
+                  />
+                </label>
               </div>
 
-              <ul style={{ margin: "8px 0 0 0", paddingLeft: 18 }}>
-                {list.map((it) => {
-                  const s = getStatus(it);
-                  return (
-                    <li key={it.id} style={{ marginBottom: 6 }}>
-                      <span style={{ fontWeight: 700 }}>
-                        {s === "overdue" ? "🔴" : "🟡"} {it.title}
-                      </span>
-                      <span style={{ opacity: 0.8 }}>
-                        {it.due_date ? ` — due ${it.due_date}` : ""}
-                        {it.notes ? ` — ${it.notes}` : ""}
-                      </span>
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-          ))}
-        </div>
-      );
-    })()}
-</section>
-
-      <section style={panelStyle}>
-        <h2 style={{ fontSize: 18, marginBottom: 10 }}>Add Vehicle</h2>
-
-        <div style={{ display: "grid", gap: 10 }}>
-          <label>
-            Nickname <span style={{ opacity: 0.6 }}>(required)</span>
-            <input
-              value={nickname}
-              onChange={(e) => setNickname(e.target.value)}
-              placeholder="Integra, F-150, Jeep..."
-              style={inputStyle}
-            />
-          </label>
-
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-            <label>
-              Year
-              <input
-                value={year}
-                onChange={(e) => setYear(e.target.value)}
-                placeholder="1998"
-                inputMode="numeric"
-                style={inputStyle}
-              />
-            </label>
-
-            <label>
-              Make
-              <input
-                value={make}
-                onChange={(e) => setMake(e.target.value)}
-                placeholder="Acura"
-                style={inputStyle}
-              />
-            </label>
-          </div>
-
-          <label>
-            Model
-            <input
-              value={model}
-              onChange={(e) => setModel(e.target.value)}
-              placeholder="Integra"
-              style={inputStyle}
-            />
-          </label>
-
-          <button
-            onClick={addVehicle}
-            disabled={!canAdd}
-            style={canAdd ? buttonStyle : disabledButtonStyle}
-          >
-            + Add Vehicle
-          </button>
-        </div>
-      </section>
-
-      <section style={{ ...panelStyle, marginTop: 18 }}>
-        <h2 style={{ fontSize: 18, marginBottom: 10 }}>Vehicles</h2>
+              <div className={styles.formActions}>
+                <Button variant="ghost" onClick={() => setShowAddVehicle(false)}>
+                  Cancel
+                </Button>
+                <Button type="submit" variant="primary" disabled={!canAdd}>
+                  Add vehicle
+                </Button>
+              </div>
+            </form>
+          </Card>
+        ) : null}
 
         {vehicles.length === 0 ? (
-          <p style={{ opacity: 0.7 }}>No vehicles yet. Add one above.</p>
+          <Card tone="subtle" className={styles.emptyState}>
+            <p className={styles.emptyTitle}>Your glovebox is empty</p>
+            <p className={styles.emptyCopy}>Add your first vehicle to start tracking maintenance.</p>
+          </Card>
         ) : (
-          <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 10 }}>
-            {vehicles.map((v) => (
-  <li key={v.id} style={vehicleCardStyle}>
+          <div className={styles.vehicleGrid}>
+            {vehicles.map((vehicle) => {
+              const counts = maintenanceCounts.get(vehicle.id) ?? { overdue: 0, upcoming: 0 };
 
-    <div
-      onClick={() => router.push(`/vehicle/${v.id}`)}
-      style={{ cursor: "pointer" }}
-    >
-      <div style={{ fontSize: 16, fontWeight: 700, textDecoration: "underline" }}>
-        {v.nickname}
-      </div>
-      <div style={{ opacity: 0.75 }}>
-        {[v.year, v.make, v.model].filter(Boolean).join(" ")}
-      </div>
-    </div>
-
-    <button
-      onClick={() => removeVehicle(v.id)}
-      style={smallButtonStyle}
-    >
-      Remove
-    </button>
-  </li>
-))}
-
-          </ul>
+              return (
+                <VehicleCard
+                  key={vehicle.id}
+                  id={vehicle.id}
+                  nickname={vehicle.nickname}
+                  year={vehicle.year}
+                  make={vehicle.make}
+                  model={vehicle.model}
+                  overdueCount={counts.overdue}
+                  dueSoonCount={counts.upcoming}
+                />
+              );
+            })}
+          </div>
         )}
       </section>
-    </main>
+
+      <section className={styles.section} aria-labelledby="maintenance-heading">
+        <div className={styles.sectionHeader}>
+          <div>
+            <h2 id="maintenance-heading" className={styles.sectionTitle}>
+              Needs attention
+            </h2>
+            <p className={styles.sectionDescription}>Overdue maintenance and work due in the next 30 days.</p>
+          </div>
+        </div>
+
+        <Card tone="default" padding="md">
+          {maintLoading ? (
+            <p className={styles.loading}>Loading maintenance…</p>
+          ) : flaggedMaintenance.length === 0 ? (
+            <div className={styles.emptyState}>
+              <p className={styles.emptyTitle}>Nothing needs attention</p>
+              <p className={styles.emptyCopy}>No maintenance is overdue or due soon.</p>
+            </div>
+          ) : (
+            <div className={styles.maintenancePanel}>
+              {Object.entries(maintenanceByVehicle).map(([vehicleId, items]) => (
+                <div key={vehicleId} className={styles.maintenanceGroup}>
+                  <Link href={`/vehicle/${vehicleId}`} className={styles.maintenanceVehicleLink}>
+                    {vehicleName(vehicleId)} →
+                  </Link>
+                  <ul className={styles.maintenanceList}>
+                    {items.map((item) => {
+                      const status = getStatus(item);
+                      return (
+                        <li key={item.id} className={styles.maintenanceItem}>
+                          <StatusBadge tone={status === "overdue" ? "danger" : "warning"}>
+                            {status === "overdue" ? "Overdue" : "Due soon"}
+                          </StatusBadge>
+                          <div>
+                            <div className={styles.maintenanceTitle}>{item.title}</div>
+                            <div className={styles.maintenanceMeta}>
+                              {item.due_date ? `Due ${item.due_date}` : "No due date"}
+                              {item.notes ? ` — ${item.notes}` : ""}
+                            </div>
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+      </section>
+    </AppShell>
   );
 }
