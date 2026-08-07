@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes } from "react";
+import { forwardRef, type ButtonHTMLAttributes } from "react";
 import styles from "./foundation.module.css";
 
 type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
@@ -10,14 +10,17 @@ export type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   fullWidth?: boolean;
 };
 
-export function Button({
-  variant = "secondary",
-  size = "md",
-  fullWidth = false,
-  className = "",
-  type = "button",
-  ...props
-}: ButtonProps) {
+export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
+  {
+    variant = "secondary",
+    size = "md",
+    fullWidth = false,
+    className = "",
+    type = "button",
+    ...props
+  },
+  ref,
+) {
   const classes = [
     styles.button,
     styles[`button${capitalize(variant)}`],
@@ -28,8 +31,8 @@ export function Button({
     .filter(Boolean)
     .join(" ");
 
-  return <button type={type} className={classes} {...props} />;
-}
+  return <button ref={ref} type={type} className={classes} {...props} />;
+});
 
 function capitalize(value: string) {
   return `${value.charAt(0).toUpperCase()}${value.slice(1)}`;

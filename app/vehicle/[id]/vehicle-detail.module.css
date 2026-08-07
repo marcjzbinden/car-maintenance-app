@@ -1,18 +1,224 @@
-.backLink {
-  display: inline-flex;
+.section {
+  margin-top: var(--space-8);
+}
+
+.section:first-of-type {
+  margin-top: 0;
+}
+
+.sectionHeader {
+  display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+.sectionHeading {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.sectionTitle {
+  margin: 0;
+  color: var(--color-text-strong);
+  font-size: 1.2rem;
+  letter-spacing: -0.02em;
+}
+
+.sectionDescription {
+  margin: var(--space-1) 0 0;
   color: var(--color-text-muted);
   font-size: var(--font-size-sm);
+}
+
+.addPanel {
+  margin-bottom: var(--space-4);
+}
+
+.panelTitle {
+  margin: 0;
+  color: var(--color-text-strong);
+  font-size: 1rem;
+}
+
+.panelDescription {
+  margin: var(--space-1) 0 var(--space-4);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.formGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(12rem, 0.55fr);
+  gap: var(--space-4);
+}
+
+.fieldFull {
+  grid-column: 1 / -1;
+}
+
+.label {
+  display: block;
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
   font-weight: 650;
-  text-decoration: none;
 }
 
-.backLink:hover {
-  color: var(--color-accent);
+.optional {
+  color: var(--color-text-muted);
+  font-weight: 400;
 }
 
-.backLink:focus-visible {
-  border-radius: var(--radius-sm);
-  outline: 3px solid var(--color-focus-ring);
-  outline-offset: 3px;
+.input,
+.textarea {
+  display: block;
+  width: 100%;
+  min-height: 2.75rem;
+  margin-top: var(--space-2);
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-subtle);
+  color: var(--color-text-strong);
+  font: inherit;
+  transition:
+    border-color var(--transition-fast),
+    box-shadow var(--transition-fast);
+}
+
+.textarea {
+  min-height: 6rem;
+  resize: vertical;
+}
+
+.input::placeholder,
+.textarea::placeholder {
+  color: var(--color-text-muted);
+}
+
+.input:focus-visible,
+.textarea:focus-visible {
+  border-color: var(--color-accent);
+  outline: none;
+  box-shadow: 0 0 0 3px var(--color-focus-ring);
+}
+
+.formActions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+
+.itemList {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.emptyState {
+  padding: var(--space-8);
+  text-align: center;
+}
+
+.emptyTitle {
+  margin: 0;
+  color: var(--color-text-strong);
+  font-weight: 700;
+}
+
+.emptyCopy {
+  margin: var(--space-2) 0 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.dialogOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--page-gutter);
+  background: rgba(0, 0, 0, 0.72);
+}
+
+.dialog {
+  width: min(100%, 32rem);
+  max-height: calc(100dvh - (2 * var(--page-gutter)));
+  overflow-y: auto;
+}
+
+.dialogTitle {
+  margin: 0;
+  color: var(--color-text-strong);
+  font-size: 1.25rem;
+}
+
+.dialogForm {
+  display: grid;
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+}
+
+.clearDateButton {
+  width: fit-content;
+  margin-top: var(--space-2);
+}
+
+.dialogError {
+  margin: 0;
+  color: var(--color-danger-text);
+  font-size: var(--font-size-sm);
+}
+
+@media (max-width: 600px) {
+  .sectionHeader {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .formGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .fieldFull {
+    grid-column: auto;
+  }
+
+  .formActions {
+    justify-content: stretch;
+  }
+
+  .formActions > * {
+    flex: 1;
+  }
+
+  .dialogOverlay {
+    align-items: flex-end;
+    padding: var(--space-2);
+  }
+
+  .dialog {
+    max-height: calc(100dvh - var(--space-4));
+  }
 }

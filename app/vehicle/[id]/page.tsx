@@ -1,33 +1,18 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
+import {
+  type FormEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useParams, useRouter } from "next/navigation";
-import { AppShell, PageHeader } from "@/components/ui";
+import { MaintenanceItemCard, type MaintenanceDisplayStatus } from "@/components/maintenance/MaintenanceItemCard";
+import { AppShell, Button, Card, PageHeader, StatusBadge } from "@/components/ui";
 import { supabase } from "@/lib/supabaseClient";
 import styles from "./vehicle-detail.module.css";
-
-const colors = {
-  bg: "#1e1e1e",
-  panel: "#252526",
-  border: "#3c3c3c",
-  text: "#e6e6e6",
-  muted: "#a0a0a0",
-
-  overdueBg: "#4b1e1e",
-  upcomingBg: "#4a3b1a",
-  openBg: "#252526",
-};
-
-const actionBtnStyle: React.CSSProperties = {
-  padding: "8px 10px",
-  borderRadius: 10,
-  border: `1px solid ${colors.border}`,
-  background: colors.panel,
-  color: colors.text,
-  cursor: "pointer",
-  whiteSpace: "nowrap",
-};
 
 type VehicleRow = {
   id: string;
@@ -43,11 +28,40 @@ type MaintenanceRow = {
   garage_id: string;
   vehicle_id: string;
   title: string;
-  due_date: string | null;       // YYYY-MM-DD
-  completed_at: string | null;   // ISO timestamp
+  due_date: string | null;
+  completed_at: string | null;
   notes: string | null;
   created_at: string;
 };
+
+function getStatus(item: MaintenanceRow): MaintenanceDisplayStatus {
+  if (item.completed_at) return "completed";
+  if (!item.due_date) return "unscheduled";
+
+  const today = new Date();
+  const due = new Date(item.due_date);
+  today.setHours(0, 0, 0, 0);
+  due.setHours(0, 0, 0, 0);
+
+  if (due < today) return "overdue";
+
+  const in30 = new Date(today);
+  in30.setDate(today.getDate() + 30);
+
+  if (due <= in30) return "upcoming";
+  return "open";
+}
+
+const urgencyRank: Record<Exclude<MaintenanceDisplayStatus, "completed">, number> = {
+  overdue: 0,
+  upcoming: 1,
+  open: 2,
+  unscheduled: 3,
+};
+
+function getErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "Failed to load vehicle.";
+}
 
 export default function VehicleDetailPage() {
   const router = useRouter();
@@ -57,22 +71,55 @@ export default function VehicleDetailPage() {
   const [loading, setLoading] = useState(true);
   const [userId, setUserId] = useState<string | null>(null);
   const [displayName, setDisplayName] = useState("");
-
   const [vehicle, setVehicle] = useState<VehicleRow | null>(null);
   const [items, setItems] = useState<MaintenanceRow[]>([]);
 
+  const [showAddItem, setShowAddItem] = useState(false);
   const [title, setTitle] = useState("");
-  const [dueDate, setDueDate] = useState(""); // YYYY-MM-DD
+  const [dueDate, setDueDate] = useState("");
   const [notes, setNotes] = useState("");
+  const [addAnnouncement, setAddAnnouncement] = useState("");
+  const addTriggerRef = useRef<HTMLButtonElement>(null);
+  const addTitleInputRef = useRef<HTMLInputElement>(null);
 
-  const canAdd = useMemo(() => title.trim().length > 0, [title]);
   const [editingItem, setEditingItem] = useState<MaintenanceRow | null>(null);
   const [editTitle, setEditTitle] = useState("");
-  const [editDueDate, setEditDueDate] = useState(""); // YYYY-MM-DD
+  const [editDueDate, setEditDueDate] = useState("");
   const [editNotes, setEditNotes] = useState("");
   const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
+  const editTitleInputRef = useRef<HTMLInputElement>(null);
+  const editTriggerRef = useRef<HTMLButtonElement | null>(null);
 
+  const canAdd = useMemo(() => title.trim().length > 0, [title]);
+
+  const openItems = useMemo(
+    () =>
+      items
+        .filter((item) => !item.completed_at)
+        .sort((a, b) => {
+          const aStatus = getStatus(a) as Exclude<MaintenanceDisplayStatus, "completed">;
+          const bStatus = getStatus(b) as Exclude<MaintenanceDisplayStatus, "completed">;
+          const rankDifference = urgencyRank[aStatus] - urgencyRank[bStatus];
+
+          if (rankDifference !== 0) return rankDifference;
+          if (a.due_date && b.due_date) return a.due_date.localeCompare(b.due_date);
+          return b.created_at.localeCompare(a.created_at);
+        }),
+    [items],
+  );
+
+  const completedItems = useMemo(
+    () =>
+      items
+        .filter((item) => item.completed_at)
+        .sort((a, b) => {
+          const aCompleted = a.completed_at ?? a.created_at;
+          const bCompleted = b.completed_at ?? b.created_at;
+          return bCompleted.localeCompare(aCompleted);
+        }),
+    [items],
+  );
 
   async function loadAll() {
     const { data: vData, error: vErr } = await supabase
@@ -110,8 +157,8 @@ export default function VehicleDetailPage() {
         );
 
         await loadAll();
-      } catch (e: any) {
-        alert(e?.message ?? "Failed to load vehicle.");
+      } catch (error: unknown) {
+        alert(getErrorMessage(error));
         router.replace("/");
       } finally {
         setLoading(false);
@@ -120,9 +167,47 @@ export default function VehicleDetailPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [vehicleId]);
 
+  useEffect(() => {
+    if (!showAddItem) return;
+
+    const focusTimer = window.setTimeout(() => addTitleInputRef.current?.focus(), 0);
+    return () => window.clearTimeout(focusTimer);
+  }, [showAddItem]);
+
+  const closeEdit = useCallback((restoreFocus = true) => {
+    setEditingItem(null);
+    setEditTitle("");
+    setEditDueDate("");
+    setEditNotes("");
+    setEditError(null);
+
+    if (restoreFocus) {
+      window.requestAnimationFrame(() => editTriggerRef.current?.focus());
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!editingItem) return;
+
+    const focusTimer = window.setTimeout(() => editTitleInputRef.current?.focus(), 0);
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      closeEdit();
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.clearTimeout(focusTimer);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [editingItem, closeEdit]);
+
   async function addItem() {
     if (!vehicle || !userId || !canAdd) return;
 
+    setAddAnnouncement("");
     const payload = {
       garage_id: vehicle.garage_id,
       vehicle_id: vehicle.id,
@@ -143,6 +228,9 @@ export default function VehicleDetailPage() {
     setNotes("");
 
     await loadAll();
+    setShowAddItem(false);
+    setAddAnnouncement("Maintenance item added.");
+    window.requestAnimationFrame(() => addTriggerRef.current?.focus());
   }
 
   async function markCompleted(id: string) {
@@ -157,7 +245,7 @@ export default function VehicleDetailPage() {
       return;
     }
 
-    setItems((prev) => prev.map((x) => (x.id === id ? { ...x, completed_at: now } : x)));
+    setItems((prev) => prev.map((item) => (item.id === id ? { ...item, completed_at: now } : item)));
   }
 
   async function reopen(id: string) {
@@ -171,22 +259,16 @@ export default function VehicleDetailPage() {
       return;
     }
 
-    setItems((prev) => prev.map((x) => (x.id === id ? { ...x, completed_at: null } : x)));
+    setItems((prev) => prev.map((item) => (item.id === id ? { ...item, completed_at: null } : item)));
   }
-  function openEdit(item: MaintenanceRow) {
+
+  function openEdit(item: MaintenanceRow, trigger: HTMLButtonElement) {
+    editTriggerRef.current = trigger;
     setEditError(null);
     setEditingItem(item);
     setEditTitle(item.title);
     setEditDueDate(item.due_date ?? "");
     setEditNotes(item.notes ?? "");
-  }
-
-  function closeEdit() {
-    setEditingItem(null);
-    setEditTitle("");
-    setEditDueDate("");
-    setEditNotes("");
-    setEditError(null);
   }
 
   async function saveEdit() {
@@ -217,35 +299,28 @@ export default function VehicleDetailPage() {
       return;
     }
 
-    // Update local state (no reload needed)
     setItems((prev) =>
-      prev.map((it) =>
-        it.id === editingItem.id ? { ...it, ...payload } : it
-      )
+      prev.map((item) => (item.id === editingItem.id ? { ...item, ...payload } : item)),
     );
 
     setIsSavingEdit(false);
     closeEdit();
   }
 
-function getStatus(item: MaintenanceRow) {
-  if (item.completed_at) return "completed";
-  if (!item.due_date) return "unscheduled";
+  function submitAddItem(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    void addItem();
+  }
 
-  const today = new Date();
-  const due = new Date(item.due_date);
-  today.setHours(0, 0, 0, 0);
-  due.setHours(0, 0, 0, 0);
+  function submitEdit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    void saveEdit();
+  }
 
-  if (due < today) return "overdue";
-
-  const in30 = new Date(today);
-  in30.setDate(today.getDate() + 30);
-
-  if (due <= in30) return "upcoming";
-
-  return "open";
-}
+  function closeAddPanel() {
+    setShowAddItem(false);
+    window.requestAnimationFrame(() => addTriggerRef.current?.focus());
+  }
 
   if (loading) {
     return (
@@ -259,11 +334,6 @@ function getStatus(item: MaintenanceRow) {
     return (
       <AppShell authenticated displayName={displayName} contentWidth="narrow">
         <PageHeader
-          eyebrow={
-            <Link href="/" className={styles.backLink}>
-              ← Vehicles
-            </Link>
-          }
           title="Vehicle not found"
         />
         <p>Vehicle not found.</p>
@@ -274,311 +344,227 @@ function getStatus(item: MaintenanceRow) {
   return (
     <AppShell authenticated displayName={displayName} contentWidth="narrow">
       <PageHeader
-        eyebrow={
-          <Link href="/" className={styles.backLink}>
-            ← Vehicles
-          </Link>
-        }
         title={vehicle.nickname}
-        description={[vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(" ") || "Vehicle details"}
+        description={
+          [vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(" ") ||
+          "Vehicle details"
+        }
       />
 
-      <section style={{ border: `1px solid ${colors.border}`,
-background: colors.panel,
- borderRadius: 12, padding: 14, marginTop: 14 }}>
-        <h2 style={{ fontSize: 18, marginBottom: 10 }}>Add Maintenance Item</h2>
-
-        <div style={{ display: "grid", gap: 10 }}>
-          <label>
-            Title <span style={{ color: colors.muted, fontSize: 16, marginLeft: 8  }}>(required)</span>
-            <input
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="Oil change, Brake fluid, Inspection..."
-              style={{ display: "block", width: "100%", padding: 10, borderRadius: 10, border: `1px solid ${colors.border}`,
-background: colors.bg,
-color: colors.text,
- marginTop: 6 }}
-            />
-          </label>
-
-          <label>
-            Due date
-            <input
-              type="date"
-              value={dueDate}
-              onChange={(e) => setDueDate(e.target.value)}
-              style={{ display: "block", width: "fit-content", padding: 10, borderRadius: 10, border: `1px solid ${colors.border}`,
-background: colors.bg,
-color: colors.text,
- marginTop: 6 }}
-            />
-          </label>
-
-          <label>
-            Notes
-            <textarea
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="Parts used, torque specs, etc."
-              style={{ display: "block", width: "100%", padding: 10, borderRadius: 10, border: `1px solid ${colors.border}`,
-background: colors.bg,
-color: colors.text,
- marginTop: 6, minHeight: 80 }}
-            />
-          </label>
-
-          <button
-  onClick={addItem}
-  disabled={!canAdd}
-  style={{
-    padding: "10px 14px",
-    borderRadius: 10,
-    border: `1px solid ${colors.border}`,
-    background: canAdd ? colors.panel : colors.bg,
-    color: colors.text,
-    cursor: canAdd ? "pointer" : "not-allowed",
-    width: "fit-content",
-  }}
->
-  + Add Item
-</button>
-
+      <section className={styles.section} aria-labelledby="open-maintenance-heading">
+        <div className={styles.sectionHeader}>
+          <div>
+            <div className={styles.sectionHeading}>
+              <h2 id="open-maintenance-heading" className={styles.sectionTitle}>
+                Open maintenance
+              </h2>
+              <StatusBadge tone="neutral">{openItems.length}</StatusBadge>
+            </div>
+            <p className={styles.sectionDescription}>
+              Ordered by urgency so the most important work stays visible.
+            </p>
+          </div>
+          <Button
+            ref={addTriggerRef}
+            variant="primary"
+            aria-expanded={showAddItem}
+            aria-controls="add-maintenance-panel"
+            onClick={() => setShowAddItem((current) => !current)}
+          >
+            {showAddItem ? "Close" : "+ Add Maintenance Item"}
+          </Button>
         </div>
-      </section>
 
-      <section style={{ marginTop: 18 }}>
-        <h2 style={{ fontSize: 18, marginBottom: 10 }}>Maintenance</h2>
+        <span className={styles.srOnly} role="status" aria-live="polite">
+          {addAnnouncement}
+        </span>
 
-        {items.length === 0 ? (
-          <p style={{ opacity: 0.7 }}>No maintenance items yet.</p>
+        {showAddItem ? (
+          <Card id="add-maintenance-panel" tone="subtle" padding="lg" className={styles.addPanel}>
+            <h3 className={styles.panelTitle}>Add maintenance item</h3>
+            <p className={styles.panelDescription}>
+              Add a due date now or leave it unscheduled for later.
+            </p>
+
+            <form onSubmit={submitAddItem}>
+              <div className={styles.formGrid}>
+                <label className={styles.label}>
+                  Title
+                  <input
+                    ref={addTitleInputRef}
+                    required
+                    value={title}
+                    onChange={(event) => setTitle(event.target.value)}
+                    placeholder="Oil change, brake fluid, inspection…"
+                    className={styles.input}
+                  />
+                </label>
+
+                <label className={styles.label}>
+                  Due date <span className={styles.optional}>(optional)</span>
+                  <input
+                    type="date"
+                    value={dueDate}
+                    onChange={(event) => setDueDate(event.target.value)}
+                    className={styles.input}
+                  />
+                </label>
+
+                <label className={`${styles.label} ${styles.fieldFull}`}>
+                  Notes <span className={styles.optional}>(optional)</span>
+                  <textarea
+                    value={notes}
+                    onChange={(event) => setNotes(event.target.value)}
+                    placeholder="Parts used, torque specs, or anything worth remembering"
+                    className={styles.textarea}
+                  />
+                </label>
+              </div>
+
+              <div className={styles.formActions}>
+                <Button variant="ghost" onClick={closeAddPanel}>
+                  Cancel
+                </Button>
+                <Button type="submit" variant="primary" disabled={!canAdd}>
+                  Add maintenance item
+                </Button>
+              </div>
+            </form>
+          </Card>
+        ) : null}
+
+        {openItems.length === 0 ? (
+          <Card tone="subtle" className={styles.emptyState}>
+            <p className={styles.emptyTitle}>All caught up</p>
+            <p className={styles.emptyCopy}>No open maintenance for this vehicle.</p>
+          </Card>
         ) : (
-          <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 10 }}>
-            {items.map((it) => {
-const status = getStatus(it);
-const done = status === "completed";
-
-              return (
-               <li
-  key={it.id}
-  style={{
-    border: `1px solid ${colors.border}`,
-    borderRadius: 12,
-    padding: 12,
-    display: "flex",
-    justifyContent: "space-between",
-    gap: 12,
-    alignItems: "center",
-    background:
-      status === "overdue"
-        ? colors.overdueBg
-        : status === "upcoming"
-        ? colors.upcomingBg
-        : colors.openBg,
-    color: colors.text,
-    opacity: done ? 0.6 : 1,
-  }}
->
-
-                  <div>
-<div style={{ fontSize: 16, fontWeight: 700, color: colors.text }}>
-  {it.title}
-</div>
-
-                  <div style={{ fontSize: 12, opacity: 0.85, marginTop: 2, color: colors.muted }}>
-  {status === "overdue" && "Overdue"}
-  {status === "upcoming" && "Due soon"}
-  {status === "completed" && "Completed"}
-  {status === "unscheduled" && "Unscheduled"}
-  {status === "open" && "Scheduled"}
-</div>
-
-
-<div style={{ opacity: 0.8, color: colors.muted }}>
-
-                      {it.due_date ? `Due: ${it.due_date}` : "No due date"}
-                      {it.notes ? ` • ${it.notes}` : ""}
-                    </div>
-                  </div>
-
-                  
-<div style={{ display: "flex", gap: 8 }}>
-  <button
-    onClick={() => openEdit(it)}
-    style={{
-      padding: "8px 10px",
-      borderRadius: 10,
-      border: `1px solid ${colors.border}`,
-      background: colors.panel,
-      color: colors.text,
-      cursor: "pointer",
-      whiteSpace: "nowrap",
-    }}
-  >
-    Edit
-  </button>
-
-  {done ? (
-    <button
-      onClick={() => reopen(it.id)}
-      style={actionBtnStyle}
-    >
-      Reopen
-    </button>
-  ) : (
-    <button
-      onClick={() => markCompleted(it.id)}
-      style={actionBtnStyle}
-    >
-      Mark done
-    </button>
-  )}
-</div>
-
-
-                </li>
-              );
-            })}
+          <ul className={styles.itemList}>
+            {openItems.map((item) => (
+              <li key={item.id}>
+                <MaintenanceItemCard
+                  title={item.title}
+                  status={getStatus(item)}
+                  dueDate={item.due_date}
+                  completedAt={item.completed_at}
+                  notes={item.notes}
+                  onEdit={(trigger) => openEdit(item, trigger)}
+                  onMarkCompleted={() => void markCompleted(item.id)}
+                />
+              </li>
+            ))}
           </ul>
         )}
       </section>
-{editingItem && (
-  <div
-    style={{
-      position: "fixed",
-      inset: 0,
-      background: "rgba(0,0,0,0.6)",
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      zIndex: 50,
-      padding: 16,
-    }}
-  >
-    <div
-      style={{
-        background: colors.panel,
-        border: `1px solid ${colors.border}`,
-        borderRadius: 12,
-        padding: 14,
-        width: "100%",
-        maxWidth: 520,
-        color: colors.text,
-      }}
-    >
-      <h3 style={{ marginTop: 0 }}>Edit maintenance</h3>
 
-      <label>
-        Title
-        <input
-          value={editTitle}
-          onChange={(e) => setEditTitle(e.target.value)}
-          style={{
-            display: "block",
-            width: "100%",
-            padding: 10,
-            borderRadius: 10,
-            border: `1px solid ${colors.border}`,
-            background: colors.bg,
-            color: colors.text,
-            marginTop: 6,
-          }}
-        />
-      </label>
-
-      <label style={{ marginTop: 10 }}>
-        Due date
-        <input
-          type="date"
-          value={editDueDate}
-          onChange={(e) => setEditDueDate(e.target.value)}
-          style={{
-            display: "block",
-            padding: 10,
-            borderRadius: 10,
-            border: `1px solid ${colors.border}`,
-            background: colors.bg,
-            color: colors.text,
-            marginTop: 6,
-          }}
-        />
-      </label>
-
-      <button
-        type="button"
-        onClick={() => setEditDueDate("")}
-        style={{
-          marginTop: 6,
-          padding: "6px 10px",
-          borderRadius: 8,
-          border: `1px solid ${colors.border}`,
-          background: colors.bg,
-          color: colors.text,
-          cursor: "pointer",
-        }}
-      >
-        Clear due date (Unscheduled)
-      </button>
-
-      <label style={{ marginTop: 10 }}>
-        Notes
-        <textarea
-          value={editNotes}
-          onChange={(e) => setEditNotes(e.target.value)}
-          style={{
-            display: "block",
-            width: "100%",
-            padding: 10,
-            borderRadius: 10,
-            border: `1px solid ${colors.border}`,
-            background: colors.bg,
-            color: colors.text,
-            marginTop: 6,
-            minHeight: 80,
-          }}
-        />
-      </label>
-
-      {editError && (
-        <div style={{ color: "#ff8080", marginTop: 8 }}>
-          {editError}
+      <section className={styles.section} aria-labelledby="maintenance-history-heading">
+        <div className={styles.sectionHeader}>
+          <div>
+            <div className={styles.sectionHeading}>
+              <h2 id="maintenance-history-heading" className={styles.sectionTitle}>
+                Maintenance history
+              </h2>
+              <StatusBadge tone="neutral">{completedItems.length}</StatusBadge>
+            </div>
+            <p className={styles.sectionDescription}>Most recently completed work appears first.</p>
+          </div>
         </div>
-      )}
 
-      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 14 }}>
-        <button
-          onClick={closeEdit}
-          style={{
-            padding: "8px 10px",
-            borderRadius: 10,
-            border: `1px solid ${colors.border}`,
-            background: colors.bg,
-            color: colors.text,
-            cursor: "pointer",
-          }}
-        >
-          Cancel
-        </button>
+        {completedItems.length === 0 ? (
+          <Card tone="subtle" className={styles.emptyState}>
+            <p className={styles.emptyTitle}>No maintenance history yet</p>
+            <p className={styles.emptyCopy}>Completed work will appear here.</p>
+          </Card>
+        ) : (
+          <ul className={styles.itemList}>
+            {completedItems.map((item) => (
+              <li key={item.id}>
+                <MaintenanceItemCard
+                  title={item.title}
+                  status="completed"
+                  dueDate={item.due_date}
+                  completedAt={item.completed_at}
+                  notes={item.notes}
+                  onEdit={(trigger) => openEdit(item, trigger)}
+                  onReopen={() => void reopen(item.id)}
+                />
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
 
-        <button
-          onClick={saveEdit}
-          disabled={isSavingEdit}
-          style={{
-            padding: "8px 10px",
-            borderRadius: 10,
-            border: `1px solid ${colors.border}`,
-            background: colors.panel,
-            color: colors.text,
-            cursor: "pointer",
-          }}
-        >
-          {isSavingEdit ? "Saving…" : "Save"}
-        </button>
-      </div>
-    </div>
-  </div>
-)}
+      {editingItem ? (
+        <div className={styles.dialogOverlay}>
+          <Card
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="edit-maintenance-title"
+            tone="elevated"
+            padding="lg"
+            className={styles.dialog}
+          >
+            <h2 id="edit-maintenance-title" className={styles.dialogTitle}>
+              Edit maintenance
+            </h2>
 
+            <form onSubmit={submitEdit} className={styles.dialogForm}>
+              <label className={styles.label}>
+                Title
+                <input
+                  ref={editTitleInputRef}
+                  value={editTitle}
+                  onChange={(event) => setEditTitle(event.target.value)}
+                  className={styles.input}
+                />
+              </label>
+
+              <label className={styles.label}>
+                Due date <span className={styles.optional}>(optional)</span>
+                <input
+                  type="date"
+                  value={editDueDate}
+                  onChange={(event) => setEditDueDate(event.target.value)}
+                  className={styles.input}
+                />
+                <Button
+                  size="sm"
+                  type="button"
+                  variant="ghost"
+                  className={styles.clearDateButton}
+                  onClick={() => setEditDueDate("")}
+                >
+                  Clear due date · Unscheduled
+                </Button>
+              </label>
+
+              <label className={styles.label}>
+                Notes <span className={styles.optional}>(optional)</span>
+                <textarea
+                  value={editNotes}
+                  onChange={(event) => setEditNotes(event.target.value)}
+                  className={styles.textarea}
+                />
+              </label>
+
+              {editError ? (
+                <p role="alert" className={styles.dialogError}>
+                  {editError}
+                </p>
+              ) : null}
+
+              <div className={styles.formActions}>
+                <Button type="button" variant="ghost" onClick={() => closeEdit()}>
+                  Cancel
+                </Button>
+                <Button type="submit" variant="primary" disabled={isSavingEdit}>
+                  {isSavingEdit ? "Saving…" : "Save changes"}
+                </Button>
+              </div>
+            </form>
+          </Card>
+        </div>
+      ) : null}
     </AppShell>
   );
 }
