@@ -180,6 +180,29 @@ Run `npm run build` locally before intentionally pushing a production change.
 9. Run lint and a production build before shipping.
 10. Review Supabase and Vercel settings before any backend or deployment action.
 
+## Future AI-assisted document processing
+
+A future version of the app could act as a more complete digital glovebox by letting users upload documents for a specific vehicle. Initial document types could include inspection reports, registration documents, and repair invoices.
+
+The intended experience is:
+
+- Save each original document in private Supabase Storage with access limited to authorized garage members.
+- Process documents on the server with OpenAI so API credentials and document-processing logic are never exposed to the browser.
+- Extract inspection and registration expiration dates for review.
+- Extract structured repair-invoice details such as the repair date, shop, services performed, parts, totals, and other useful vehicle-maintenance information when present.
+- Preserve structured extraction results as a reviewable draft rather than treating AI output as authoritative.
+- Require the user to review, correct, and explicitly approve extracted information before it is written to application records.
+
+### Staged implementation plan
+
+1. Define the supported document types, review experience, privacy expectations, and extraction fields.
+2. Add authenticated vehicle document uploads and private original-file storage.
+3. Add a server-side processing workflow that sends supported documents to OpenAI and returns structured draft results.
+4. Build a review screen where users can compare the original document with extracted fields and make corrections.
+5. Add explicit approval and persistence of reviewed results, followed by retry handling, processing status, and operational monitoring.
+
+Any required database schema, SQL, Storage policy, RLS policy, or RPC changes must be designed and reviewed separately before implementation.
+
 ## Known project gaps
 
 - No pinned Node.js version
@@ -187,4 +210,3 @@ Run `npm run build` locally before intentionally pushing a production change.
 - No documented initial garage provisioning process
 - No automated tests
 - No centralized server-side authentication guard
-
