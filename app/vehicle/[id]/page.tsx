@@ -11,6 +11,7 @@ import {
 import { useParams, useRouter } from "next/navigation";
 import { MaintenanceItemCard, type MaintenanceDisplayStatus } from "@/components/maintenance/MaintenanceItemCard";
 import { AppShell, Button, Card, PageHeader, StatusBadge } from "@/components/ui";
+import { resolveAuthenticatedGarage } from "@/lib/garageSetup";
 import { supabase } from "@/lib/supabaseClient";
 import styles from "./vehicle-detail.module.css";
 
@@ -144,17 +145,13 @@ export default function VehicleDetailPage() {
   useEffect(() => {
     (async () => {
       try {
-        const { data } = await supabase.auth.getUser();
-        if (!data.user) {
+        const setup = await resolveAuthenticatedGarage();
+        if (!setup) {
           router.replace("/login");
           return;
         }
-        setUserId(data.user.id);
-        setDisplayName(
-          typeof data.user.user_metadata?.display_name === "string"
-            ? data.user.user_metadata.display_name
-            : "",
-        );
+        setUserId(setup.userId);
+        setDisplayName(setup.displayName);
 
         await loadAll();
       } catch (error: unknown) {

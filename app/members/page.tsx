@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { panelStyle, inputStyle, buttonStyle, disabledButtonStyle } from "@/app/uiStyles";
-import { AppShell, PageHeader } from "@/components/ui";
 import { useRouter } from "next/navigation";
+import { inputStyle } from "@/app/uiStyles";
+import { AppShell, Button, Card, PageHeader } from "@/components/ui";
+import { getErrorMessage, resolveAuthenticatedGarage } from "@/lib/garageSetup";
 import { supabase } from "@/lib/supabaseClient";
 
 type Role = "member" | "owner";
@@ -23,169 +24,97 @@ export default function MembersPage() {
   const router = useRouter();
 
   const [garageId, setGarageId] = useState<string | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [currentRole, setCurrentRole] = useState<Role | null>(null);
   const [displayName, setDisplayName] = useState("");
-
   const [profiles, setProfiles] = useState<ProfileRow[]>([]);
   const [members, setMembers] = useState<GarageMemberRow[]>([]);
-
-  const [selectedUserId, setSelectedUserId] = useState<string>("");
-  const [newRole, setNewRole] = useState<Role>("member");
-
   const [msg, setMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [working, setWorking] = useState(false);
+  const [setupError, setSetupError] = useState<string | null>(null);
+  const [setupAttempt, setSetupAttempt] = useState(0);
 
-  // Map user_id -> profile for display
   const profileById = useMemo(() => {
-    const m = new Map<string, ProfileRow>();
-    for (const p of profiles) m.set(p.id, p);
-    return m;
+    const profileMap = new Map<string, ProfileRow>();
+    for (const profile of profiles) profileMap.set(profile.id, profile);
+    return profileMap;
   }, [profiles]);
 
-  const memberIds = useMemo(() => new Set(members.map((m) => m.user_id)), [members]);
-  const availableProfiles = useMemo(() => {
-    // Only show people not already in this garage
-    return profiles.filter((p) => !memberIds.has(p.id));
-  }, [profiles, memberIds]);
+  const ownerCount = useMemo(
+    () => members.filter((member) => member.role === "owner").length,
+    [members],
+  );
+
+  async function loadMembers(gId: string, userId: string) {
+    const { data: memberRows, error: memberError } = await supabase
+      .from("garage_members")
+      .select("user_id,role")
+      .eq("garage_id", gId)
+      .order("role", { ascending: false });
+
+    if (memberError) throw memberError;
+
+    const nextMembers = (memberRows ?? []) as GarageMemberRow[];
+    setMembers(nextMembers);
+    setCurrentRole(nextMembers.find((member) => member.user_id === userId)?.role ?? null);
+
+    const memberIds = nextMembers.map((member) => member.user_id);
+    if (memberIds.length === 0) {
+      setProfiles([]);
+      return;
+    }
+
+    const { data: profileRows, error: profileError } = await supabase
+      .from("profiles")
+      .select("id,email,full_name")
+      .in("id", memberIds)
+      .order("email", { ascending: true });
+
+    if (profileError) throw profileError;
+    setProfiles((profileRows ?? []) as ProfileRow[]);
+  }
 
   useEffect(() => {
+    let isMounted = true;
+
     (async () => {
-      setLoading(true);
-      setMsg(null);
+      try {
+        setLoading(true);
+        setSetupError(null);
+        setMsg(null);
 
-      const { data } = await supabase.auth.getUser();
-      if (!data.user) {
-        router.replace("/login");
-        return;
+        const setup = await resolveAuthenticatedGarage();
+        if (!setup) {
+          router.replace("/login");
+          return;
+        }
+
+        if (!isMounted) return;
+
+        setGarageId(setup.garageId);
+        setCurrentUserId(setup.userId);
+        setDisplayName(setup.displayName);
+        await loadMembers(setup.garageId, setup.userId);
+      } catch (error: unknown) {
+        if (isMounted) setSetupError(getErrorMessage(error));
+      } finally {
+        if (isMounted) setLoading(false);
       }
-
-      setDisplayName(
-        typeof data.user.user_metadata?.display_name === "string"
-          ? data.user.user_metadata.display_name
-          : "",
-      );
-
-      // Discover garage_id from current user's membership row
-      const { data: memberships, error: memErr } = await supabase
-        .from("garage_members")
-        .select("garage_id")
-        .eq("user_id", data.user.id);
-
-      if (memErr) {
-        setMsg(memErr.message);
-        setLoading(false);
-        return;
-      }
-
-      if (!memberships || memberships.length === 0) {
-        setMsg("No garage membership found for your user.");
-        setLoading(false);
-        return;
-      }
-
-      const gId = memberships[0].garage_id as string;
-      setGarageId(gId);
-
-      // Load profiles (dropdown)
-      const { data: profs, error: profErr } = await supabase
-        .from("profiles")
-        .select("id,email,full_name")
-        .order("email", { ascending: true });
-
-      if (profErr) {
-        setMsg(`Profiles error: ${profErr.message}`);
-        setLoading(false);
-        return;
-      }
-      setProfiles((profs ?? []) as ProfileRow[]);
-
-      // Load current garage members
-      const { data: gms, error: gmErr } = await supabase
-        .from("garage_members")
-        .select("user_id,role")
-        .eq("garage_id", gId)
-        .order("role", { ascending: false });
-
-      if (gmErr) {
-        setMsg(`Members error: ${gmErr.message}`);
-        setLoading(false);
-        return;
-      }
-      setMembers((gms ?? []) as GarageMemberRow[]);
-
-      setLoading(false);
     })();
-  }, [router]);
 
-async function refreshMembers() {
-  if (!garageId) return;
-
-  const { data: gms, error } = await supabase
-    .from("garage_members")
-    .select("user_id,role")
-    .eq("garage_id", garageId);
-
-  if (error) {
-    setMsg(`Refresh members failed: ${error.message}`);
-    return;
-  }
-
-  setMembers((gms ?? []) as GarageMemberRow[]);
-  setMsg((prev) => (prev ? prev : `Members loaded: ${(gms ?? []).length}`));
-}
-
-
-  async function addSelectedMember() {
-    setMsg(null);
-    if (!garageId) return;
-
-    if (!selectedUserId) {
-      setMsg("Pick a user to add.");
-      return;
-    }
-
-    setWorking(true);
-    const { error } = await supabase.rpc("add_garage_member", {
-      p_garage_id: garageId,
-      p_user_id: selectedUserId,
-      p_role: newRole,
-    });
-
-    const { data: check, error: checkErr } = await supabase
-  .from("garage_members")
-  .select("user_id,role")
-  .eq("garage_id", garageId)
-  .eq("user_id", selectedUserId)
-  .maybeSingle();
-
-if (checkErr) {
-  setMsg(`Added, but verification failed: ${checkErr.message}`);
-} else if (!check) {
-  setMsg("RPC returned success, but the member row was not found. (Likely RPC/RLS issue)");
-} else {
-  setMsg("Member added.");
-}
-
-
-    if (error) {
-      setMsg(error.message);
-      setWorking(false);
-      return;
-    }
-
-    setMsg("Member added/updated.");
-    setSelectedUserId("");
-    setNewRole("member");
-    await refreshMembers();
-    setWorking(false);
-  }
+    return () => {
+      isMounted = false;
+    };
+  }, [router, setupAttempt]);
 
   async function updateRole(userId: string, role: Role) {
-    setMsg(null);
-    if (!garageId) return;
+    if (!garageId || !currentUserId || currentRole !== "owner") return;
 
+    setMsg(null);
     setWorking(true);
-    const { error } = await supabase.rpc("add_garage_member", {
+
+    const { error } = await supabase.rpc("set_garage_member_role", {
       p_garage_id: garageId,
       p_user_id: userId,
       p_role: role,
@@ -197,104 +126,117 @@ if (checkErr) {
       return;
     }
 
-    await refreshMembers();
-    setWorking(false);
+    try {
+      await loadMembers(garageId, currentUserId);
+      setMsg("Member role updated.");
+    } catch (refreshError: unknown) {
+      setMsg(`Role updated, but refresh failed: ${getErrorMessage(refreshError)}`);
+    } finally {
+      setWorking(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <AppShell contentWidth="narrow">
+        <p style={{ opacity: 0.8 }}>Setting up your garage...</p>
+      </AppShell>
+    );
+  }
+
+  if (setupError) {
+    return (
+      <AppShell authenticated displayName={displayName} contentWidth="narrow">
+        <PageHeader
+          eyebrow="Garage setup"
+          title="We couldn’t load garage members"
+          description="Your account is signed in, but garage setup or roster loading did not finish."
+        />
+        <Card tone="subtle" padding="lg">
+          <p>{setupError}</p>
+          <Button variant="primary" onClick={() => setSetupAttempt((attempt) => attempt + 1)}>
+            Retry setup
+          </Button>
+        </Card>
+      </AppShell>
+    );
   }
 
   return (
-<AppShell authenticated displayName={displayName} contentWidth="narrow">
+    <AppShell authenticated displayName={displayName} contentWidth="narrow">
       <PageHeader
         eyebrow="Garage"
         title="Garage members"
-        description="Manage the people who can access this digital glovebox."
+        description={
+          currentRole === "owner"
+            ? "Manage roles for the people who already share this digital glovebox."
+            : "See the people who share this digital glovebox."
+        }
       />
-      {loading ? (
-        <p style={{ opacity: 0.8 }}>Loading…</p>
-      ) : (
-        <>
-          <section style={{ ...panelStyle, marginTop: 14 }}>
-            <h2 style={{ fontSize: 18, marginBottom: 10 }}>Add member</h2>
-            <label>
-              User
-              <select
-                value={selectedUserId}
-                onChange={(e) => setSelectedUserId(e.target.value)}
-                style={inputStyle}
-              >
-                <option value="">Select a user…</option>
-                {availableProfiles.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {(p.full_name || p.email || p.id).toString()}
-                  </option>
-                ))}
-              </select>
-            </label>
 
-            <div style={{ marginTop: 10 }}>
-              <label>
-                Role&nbsp;
-                <select
-                  value={newRole}
-                  onChange={(e) => setNewRole(e.target.value as Role)}
-                  style={inputStyle}
+      <Card tone="subtle" padding="md" style={{ marginTop: 14 }}>
+        <p style={{ margin: 0, opacity: 0.78 }}>
+          Adding or inviting new people is not available yet. Invitations will require acceptance
+          before access is granted.
+        </p>
+      </Card>
+
+      <Card padding="md" style={{ marginTop: 14 }}>
+        <h2 style={{ fontSize: 18, marginBottom: 10 }}>Current members</h2>
+
+        {members.length === 0 ? (
+          <p style={{ opacity: 0.75 }}>No members found.</p>
+        ) : (
+          <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+            {members.map((member) => {
+              const profile = profileById.get(member.user_id);
+              const label = profile?.full_name || profile?.email || "Garage member";
+              const isFinalOwner = member.role === "owner" && ownerCount === 1;
+
+              return (
+                <li
+                  key={member.user_id}
+                  style={{
+                    display: "flex",
+                    gap: 10,
+                    alignItems: "center",
+                    padding: "10px 0",
+                    borderBottom: "1px solid rgba(255, 255, 255, 0.1)",
+                  }}
                 >
-                  <option value="member">member</option>
-                  <option value="owner">owner</option>
-                </select>
-              </label>
-            </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 600 }}>
+                      {label}
+                      {member.user_id === currentUserId ? " (you)" : ""}
+                    </div>
+                    {profile?.email ? (
+                      <div style={{ opacity: 0.7, fontSize: 13 }}>{profile.email}</div>
+                    ) : null}
+                  </div>
 
-            <button
-    onClick={addSelectedMember}
-    disabled={working}
-    style={working ? disabledButtonStyle : { ...buttonStyle, marginTop: 12 }}
-  >
-    {working ? "Working…" : "Add / Update Member"}
-  </button>
+                  {currentRole === "owner" ? (
+                    <select
+                      aria-label={`Role for ${label}`}
+                      value={member.role}
+                      onChange={(event) => void updateRole(member.user_id, event.target.value as Role)}
+                      disabled={working || isFinalOwner}
+                      title={isFinalOwner ? "A garage must retain at least one owner." : undefined}
+                      style={{ ...inputStyle, width: "auto", minWidth: 120 }}
+                    >
+                      <option value="member">member</option>
+                      <option value="owner">owner</option>
+                    </select>
+                  ) : (
+                    <span style={{ opacity: 0.75, textTransform: "capitalize" }}>{member.role}</span>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
 
-            {availableProfiles.length === 0 && (
-              <p style={{ marginTop: 10, opacity: 0.75 }}>
-                No available users to add.
-              </p>
-            )}
-
-            {msg && <p style={{ marginTop: 10 }}>{msg}</p>}
-        </section>
-
-        <section style={{ ...panelStyle, marginTop: 14 }}>
-          <h2 style={{ fontSize: 18, marginBottom: 10 }}>Current members</h2>
-            {members.length === 0 ? (
-              <p style={{ opacity: 0.75 }}>No members found.</p>
-            ) : (
-              <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
-                {members.map((m) => {
-                  const p = profileById.get(m.user_id);
-                  const label = p?.full_name || p?.email || m.user_id;
-
-                  return (
-                    <li key={m.user_id} style={{ display: "flex", gap: 10, alignItems: "center", padding: "8px 0", borderBottom: "1px solid #eee" }}>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontWeight: 600 }}>{label}</div>
-                        {p?.email && <div style={{ opacity: 0.7, fontSize: 13 }}>{p.email}</div>}
-                      </div>
-
-                      <select
-                        value={m.role}
-                        onChange={(e) => updateRole(m.user_id, e.target.value as Role)}
-                        disabled={working}
-                        style={inputStyle}
-                      >
-                        <option value="member">member</option>
-                        <option value="owner">owner</option>
-                      </select>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </section>
-        </>
-      )}
+        {msg ? <p role="status" style={{ marginBottom: 0 }}>{msg}</p> : null}
+      </Card>
     </AppShell>
   );
 }

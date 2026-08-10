@@ -28,21 +28,26 @@ export default function LoginPage() {
     setBusy(true);
     try {
       if (mode === "signup") {
-        const { error } = await supabase.auth.signUp({
+        const trimmedDisplayName = displayName.trim();
+        const { data, error } = await supabase.auth.signUp({
           email: email.trim(),
           password,
           options: {
             data: {
-              display_name: displayName.trim(),
+              display_name: trimmedDisplayName,
             },
           },
         });
 
         if (error) throw error;
 
-        setMsg("Account created. You can sign in now.");
-        setDisplayName("");
-        setMode("signin");
+        if (data.session) {
+          router.push("/");
+        } else {
+          setMsg("Account created. Check your email to confirm your account, then sign in.");
+          setDisplayName("");
+          setMode("signin");
+        }
       } else {
         const { error } = await supabase.auth.signInWithPassword({
           email: email.trim(),

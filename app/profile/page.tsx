@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { colors, panelStyle, inputStyle, buttonStyle, disabledButtonStyle } from "@/app/uiStyles";
-import { AppShell, PageHeader } from "@/components/ui";
+import { AppShell, Button, Card, PageHeader } from "@/components/ui";
+import { ensureUserSetup, getErrorMessage, resolveAuthenticatedGarage } from "@/lib/garageSetup";
 
 export default function ProfilePage() {
   const router = useRouter();
@@ -13,20 +14,29 @@ export default function ProfilePage() {
   const [saving, setSaving] = useState(false);
   const [displayName, setDisplayName] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
+  const [setupError, setSetupError] = useState<string | null>(null);
+  const [setupAttempt, setSetupAttempt] = useState(0);
 
   useEffect(() => {
     (async () => {
-      const { data, error } = await supabase.auth.getUser();
-      if (error || !data.user) {
-        router.replace("/login");
-        return;
-      }
+      try {
+        setLoading(true);
+        setSetupError(null);
 
-      const current = (data.user.user_metadata as any)?.display_name ?? "";
-      setDisplayName(current);
-      setLoading(false);
+        const setup = await resolveAuthenticatedGarage();
+        if (!setup) {
+          router.replace("/login");
+          return;
+        }
+
+        setDisplayName(setup.displayName);
+      } catch (error: unknown) {
+        setSetupError(getErrorMessage(error));
+      } finally {
+        setLoading(false);
+      }
     })();
-  }, [router]);
+  }, [router, setupAttempt]);
 
   async function save() {
     setMsg(null);
@@ -48,14 +58,39 @@ export default function ProfilePage() {
       return;
     }
 
-    setMsg("Saved!");
-    setSaving(false);
+    try {
+      await ensureUserSetup();
+      setDisplayName(name);
+      setMsg("Saved!");
+    } catch (setupSyncError: unknown) {
+      setMsg(`Name saved, but profile sync failed: ${getErrorMessage(setupSyncError)}`);
+    } finally {
+      setSaving(false);
+    }
   }
 
   if (loading) {
     return (
       <AppShell contentWidth="narrow">
         <p style={{ opacity: 0.8 }}>Loading…</p>
+      </AppShell>
+    );
+  }
+
+  if (setupError) {
+    return (
+      <AppShell authenticated displayName={displayName} contentWidth="narrow">
+        <PageHeader
+          eyebrow="Garage setup"
+          title="We couldn’t finish account setup"
+          description="Your account is signed in. Retry to finish opening your glovebox."
+        />
+        <Card tone="subtle" padding="lg">
+          <p>{setupError}</p>
+          <Button variant="primary" onClick={() => setSetupAttempt((attempt) => attempt + 1)}>
+            Retry setup
+          </Button>
+        </Card>
       </AppShell>
     );
   }

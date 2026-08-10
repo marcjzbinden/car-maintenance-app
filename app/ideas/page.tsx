@@ -2,8 +2,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { colors, panelStyle, inputStyle, buttonStyle, disabledButtonStyle } from "@/app/uiStyles";
-import { AppShell, PageHeader } from "@/components/ui";
+import { AppShell, Button, Card, PageHeader } from "@/components/ui";
 import { useRouter } from "next/navigation";
+import { getErrorMessage, resolveAuthenticatedGarage } from "@/lib/garageSetup";
 import { supabase } from "@/lib/supabaseClient";
 
 
@@ -26,6 +27,8 @@ export default function IdeasPage() {
   const [userId, setUserId] = useState<string | null>(null);
   const [displayName, setDisplayName] = useState("");
   const [garageId, setGarageId] = useState<string | null>(null);
+  const [setupError, setSetupError] = useState<string | null>(null);
+  const [setupAttempt, setSetupAttempt] = useState(0);
 
   const [ideas, setIdeas] = useState<IdeaRow[]>([]);
 
@@ -49,46 +52,24 @@ export default function IdeasPage() {
 
     (async () => {
       try {
-        // Auth
-        const { data, error } = await supabase.auth.getUser();
-        if (error) throw error;
+        setLoading(true);
+        setSetupError(null);
 
-        const u = data.user;
-        if (!u) {
+        const setup = await resolveAuthenticatedGarage();
+        if (!setup) {
           router.replace("/login");
           return;
         }
 
         if (!isMounted) return;
-        setUserId(u.id);
-        setDisplayName(
-          typeof u.user_metadata?.display_name === "string"
-            ? u.user_metadata.display_name
-            : "",
-        );
+        setUserId(setup.userId);
+        setDisplayName(setup.displayName);
+        setGarageId(setup.garageId);
 
-        // Active garage (first membership for now)
-        const { data: memberships, error: mErr } = await supabase
-          .from("garage_members")
-          .select("garage_id")
-          .eq("user_id", u.id);
-
-        if (mErr) throw mErr;
-        if (!memberships || memberships.length === 0) {
-          alert("No garage membership found.");
-          router.replace("/");
-          return;
-        }
-
-        const gid = memberships[0].garage_id as string;
-        if (!isMounted) return;
-        setGarageId(gid);
-
-        await loadIdeas(gid);
-      } catch (e: any) {
-        console.error("Ideas load failed:", e);
-        alert(e?.message ?? "Ideas load failed (see console).");
-        router.replace("/");
+        await loadIdeas(setup.garageId);
+      } catch (error: unknown) {
+        console.error("Ideas load failed:", error);
+        if (isMounted) setSetupError(getErrorMessage(error));
       } finally {
         if (isMounted) setLoading(false);
       }
@@ -97,7 +78,7 @@ export default function IdeasPage() {
     return () => {
       isMounted = false;
     };
-  }, [router]);
+  }, [router, setupAttempt]);
 
   async function addIdea() {
     if (!canAdd || !userId || !garageId) return;
@@ -155,6 +136,24 @@ export default function IdeasPage() {
     return (
       <AppShell contentWidth="narrow">
         <p>Loading…</p>
+      </AppShell>
+    );
+  }
+
+  if (setupError) {
+    return (
+      <AppShell authenticated displayName={displayName} contentWidth="narrow">
+        <PageHeader
+          eyebrow="Garage setup"
+          title="We couldn’t open your ideas"
+          description="Your account is signed in, but garage setup did not finish."
+        />
+        <Card tone="subtle" padding="lg">
+          <p>{setupError}</p>
+          <Button variant="primary" onClick={() => setSetupAttempt((attempt) => attempt + 1)}>
+            Retry setup
+          </Button>
+        </Card>
       </AppShell>
     );
   }

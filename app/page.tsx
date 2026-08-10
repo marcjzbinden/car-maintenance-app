@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AppShell, Button, Card, PageHeader, StatusBadge } from "@/components/ui";
 import { VehicleCard } from "@/components/vehicles/VehicleCard";
+import { getErrorMessage, resolveAuthenticatedGarage } from "@/lib/garageSetup";
 import { supabase } from "@/lib/supabaseClient";
 import styles from "./dashboard.module.css";
 
@@ -49,10 +50,6 @@ function getStatus(item: MaintenanceRow): MaintenanceStatus {
   return "open";
 }
 
-function getErrorMessage(error: unknown) {
-  return error instanceof Error ? error.message : "Something went wrong.";
-}
-
 export default function Home() {
   const router = useRouter();
   const [displayName, setDisplayName] = useState("");
@@ -68,6 +65,8 @@ export default function Home() {
   const [showAddVehicle, setShowAddVehicle] = useState(false);
   const [activeGarageId, setActiveGarageId] = useState<string | null>(null);
   const [activeGarageName, setActiveGarageName] = useState("Garage");
+  const [setupError, setSetupError] = useState<string | null>(null);
+  const [setupAttempt, setSetupAttempt] = useState(0);
 
   const canAdd = useMemo(() => nickname.trim().length > 0, [nickname]);
 
@@ -150,50 +149,27 @@ export default function Home() {
 
     (async () => {
       try {
-        const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-        if (sessionError) throw sessionError;
+        setLoading(true);
+        setSetupError(null);
 
-        const session = sessionData.session;
-        if (!session?.user) {
+        const setup = await resolveAuthenticatedGarage();
+        if (!setup) {
           router.replace("/login");
           return;
         }
 
-        const user = session.user;
         if (!isMounted) return;
 
-        setUserId(user.id);
-        setDisplayName(
-          typeof user.user_metadata?.display_name === "string"
-            ? user.user_metadata.display_name
-            : "",
-        );
-
-        const { data: memberships, error: membershipError } = await supabase
-          .from("garage_members")
-          .select("garage_id, role")
-          .eq("user_id", user.id);
-
-        if (membershipError) throw membershipError;
-
-        if (!memberships || memberships.length === 0) {
-          alert("No garage membership found for this user.");
-          router.replace("/login");
-          return;
-        }
-
-        const garageId = memberships[0].garage_id;
-        if (!isMounted) return;
-
-        setActiveGarageId(garageId);
+        setUserId(setup.userId);
+        setDisplayName(setup.displayName);
+        setActiveGarageId(setup.garageId);
         setActiveGarageName("Garage");
 
-        await loadVehicles(garageId);
-        await loadDashboardMaintenance(garageId);
+        await loadVehicles(setup.garageId);
+        await loadDashboardMaintenance(setup.garageId);
       } catch (error: unknown) {
         console.error("Home load failed:", error);
-        alert(getErrorMessage(error));
-        router.replace("/login");
+        if (isMounted) setSetupError(getErrorMessage(error));
       } finally {
         if (isMounted) setLoading(false);
       }
@@ -202,7 +178,7 @@ export default function Home() {
     return () => {
       isMounted = false;
     };
-  }, [router]);
+  }, [router, setupAttempt]);
 
   async function addVehicle() {
     if (!canAdd || !userId || !activeGarageId) return;
@@ -245,6 +221,24 @@ export default function Home() {
     return (
       <AppShell>
         <p className={styles.loading}>Loading your garage…</p>
+      </AppShell>
+    );
+  }
+
+  if (setupError) {
+    return (
+      <AppShell authenticated displayName={displayName}>
+        <PageHeader
+          eyebrow="Garage setup"
+          title="We couldn’t open your glovebox"
+          description="Your account is signed in, but garage setup did not finish."
+        />
+        <Card tone="subtle" padding="lg">
+          <p className={styles.emptyCopy}>{setupError}</p>
+          <Button variant="primary" onClick={() => setSetupAttempt((attempt) => attempt + 1)}>
+            Retry setup
+          </Button>
+        </Card>
       </AppShell>
     );
   }
