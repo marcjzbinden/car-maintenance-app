@@ -1,4 +1,4 @@
-﻿export type Json =
+export type Json =
   | string
   | number
   | boolean
@@ -151,11 +151,11 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "maintenance_items_vehicle_id_fkey"
-            columns: ["vehicle_id"]
+            foreignKeyName: "maintenance_items_vehicle_garage_id_fkey"
+            columns: ["vehicle_id", "garage_id"]
             isOneToOne: false
             referencedRelation: "vehicles"
-            referencedColumns: ["id"]
+            referencedColumns: ["id", "garage_id"]
           },
         ]
       }
@@ -229,12 +229,17 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      add_garage_member: {
+      ensure_user_setup: { Args: never; Returns: string }
+      is_garage_member: { Args: { p_garage_id: string }; Returns: boolean }
+      is_garage_owner: { Args: { p_garage_id: string }; Returns: boolean }
+      remove_garage_member: {
+        Args: { p_garage_id: string; p_user_id: string }
+        Returns: undefined
+      }
+      set_garage_member_role: {
         Args: { p_garage_id: string; p_role: string; p_user_id: string }
         Returns: undefined
       }
-      is_garage_member: { Args: { p_garage_id: string }; Returns: boolean }
-      is_garage_owner: { Args: { p_garage_id: string }; Returns: boolean }
     }
     Enums: {
       [_ in never]: never

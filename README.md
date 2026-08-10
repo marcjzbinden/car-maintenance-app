@@ -203,6 +203,19 @@ The intended experience is:
 
 Any required database schema, SQL, Storage policy, RLS policy, or RPC changes must be designed and reviewed separately before implementation.
 
+## Future registration and abuse protection
+
+Before Digital Glovebox is opened to broader external use:
+
+- Re-enable email confirmation. The signup flow should continue supporting both an immediate authenticated session and an email-confirmation flow.
+- Treat email confirmation as identity verification, not complete abuse prevention; it does not stop arbitrary account creation by itself.
+- Evaluate bot or CAPTCHA protection, signup rate limiting, reasonable account/garage/resource limits, and abuse monitoring.
+- Consider a controlled beta using invite-only registration, invite codes, or an approved-email mechanism instead of unrestricted public signup.
+- Avoid building a site-wide administration console unless actual usage demonstrates a need for one.
+- Keep external-user onboarding simple while preserving complete isolation between unrelated garages.
+
+This is future work and is not implemented yet.
+
 ## Known project gaps
 
 - No pinned Node.js version
