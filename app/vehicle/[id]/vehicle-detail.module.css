@@ -34,6 +34,10 @@
   font-size: var(--font-size-sm);
 }
 
+.actionLabelMobile {
+  display: none;
+}
+
 .addPanel {
   margin-bottom: var(--space-4);
 }
@@ -197,6 +201,38 @@
     flex-direction: column;
   }
 
+  .openMaintenanceHeader {
+    flex-direction: row;
+    gap: var(--space-3);
+  }
+
+  .openMaintenanceHeader > div {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .openMaintenanceHeader .addMaintenanceAction {
+    flex: 0 0 auto;
+    min-height: 2.75rem;
+    padding: 0 var(--space-3);
+    border-color: transparent;
+    background: transparent;
+    color: var(--color-accent);
+  }
+
+  .openMaintenanceHeader .addMaintenanceAction:hover:not(:disabled) {
+    border-color: var(--color-border);
+    background: var(--color-surface-hover);
+  }
+
+  .actionLabelDesktop {
+    display: none;
+  }
+
+  .actionLabelMobile {
+    display: inline;
+  }
+
   .formGrid {
     grid-template-columns: 1fr;
   }
@@ -220,5 +256,9 @@
 
   .dialog {
     max-height: calc(100dvh - var(--space-4));
+  }
+
+  .itemList {
+    gap: var(--space-2);
   }
 }

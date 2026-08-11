@@ -252,7 +252,7 @@ export default function Home() {
       />
 
       <section aria-labelledby="vehicles-heading">
-        <div className={styles.sectionHeader}>
+        <div className={`${styles.sectionHeader} ${styles.vehicleSectionHeader}`}>
           <div>
             <h2 id="vehicles-heading" className={styles.sectionTitle}>
               Vehicles
@@ -263,11 +263,18 @@ export default function Home() {
           </div>
           <Button
             variant="primary"
+            className={styles.addVehicleAction}
+            aria-label={showAddVehicle ? "Close add vehicle form" : "Add vehicle"}
             aria-expanded={showAddVehicle}
             aria-controls="add-vehicle-panel"
             onClick={() => setShowAddVehicle((current) => !current)}
           >
-            {showAddVehicle ? "Close" : "+ Add Vehicle"}
+            <span className={styles.actionLabelDesktop} aria-hidden="true">
+              {showAddVehicle ? "Close" : "+ Add Vehicle"}
+            </span>
+            <span className={styles.actionLabelMobile} aria-hidden="true">
+              {showAddVehicle ? "Close" : "+ Add"}
+            </span>
           </Button>
         </div>
 

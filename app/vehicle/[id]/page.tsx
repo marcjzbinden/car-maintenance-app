@@ -349,7 +349,7 @@ export default function VehicleDetailPage() {
       />
 
       <section className={styles.section} aria-labelledby="open-maintenance-heading">
-        <div className={styles.sectionHeader}>
+        <div className={`${styles.sectionHeader} ${styles.openMaintenanceHeader}`}>
           <div>
             <div className={styles.sectionHeading}>
               <h2 id="open-maintenance-heading" className={styles.sectionTitle}>
@@ -364,11 +364,18 @@ export default function VehicleDetailPage() {
           <Button
             ref={addTriggerRef}
             variant="primary"
+            className={styles.addMaintenanceAction}
+            aria-label={showAddItem ? "Close add maintenance item form" : "Add maintenance item"}
             aria-expanded={showAddItem}
             aria-controls="add-maintenance-panel"
             onClick={() => setShowAddItem((current) => !current)}
           >
-            {showAddItem ? "Close" : "+ Add Maintenance Item"}
+            <span className={styles.actionLabelDesktop} aria-hidden="true">
+              {showAddItem ? "Close" : "+ Add Maintenance Item"}
+            </span>
+            <span className={styles.actionLabelMobile} aria-hidden="true">
+              {showAddItem ? "Close" : "+ Add"}
+            </span>
           </Button>
         </div>
 

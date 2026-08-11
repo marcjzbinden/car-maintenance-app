@@ -22,12 +22,21 @@ export function VehicleCard({
   dueSoonCount,
 }: VehicleCardProps) {
   const vehicleDescription = [year, make, model].filter(Boolean).join(" ");
+  const isUpToDate = overdueCount === 0 && dueSoonCount === 0;
+  const maintenanceStatus = isUpToDate
+    ? "Maintenance up to date"
+    : [
+        overdueCount > 0 ? `${overdueCount} overdue` : null,
+        dueSoonCount > 0 ? `${dueSoonCount} due soon` : null,
+      ]
+        .filter(Boolean)
+        .join(", ");
 
   return (
     <Link
       href={`/vehicle/${id}`}
       className={styles.cardLink}
-      aria-label={`Open ${nickname}${vehicleDescription ? `, ${vehicleDescription}` : ""}`}
+      aria-label={`Open ${nickname}${vehicleDescription ? `, ${vehicleDescription}` : ""}. ${maintenanceStatus}`}
     >
       <Card tone="elevated" padding="lg" className={styles.card}>
         <div className={styles.identity}>
@@ -38,17 +47,23 @@ export function VehicleCard({
             </p>
           </div>
           <span className={styles.openAffordance} aria-hidden="true">
-            Open <span>→</span>
+            &rarr;
           </span>
         </div>
 
         <div className={styles.statuses} aria-label="Maintenance status">
-          <StatusBadge tone={overdueCount > 0 ? "danger" : "neutral"}>
-            {overdueCount} overdue
-          </StatusBadge>
-          <StatusBadge tone={dueSoonCount > 0 ? "warning" : "neutral"}>
-            {dueSoonCount} due soon
-          </StatusBadge>
+          {isUpToDate ? (
+            <StatusBadge tone="success">&#10003; Up to date</StatusBadge>
+          ) : (
+            <>
+              {overdueCount > 0 ? (
+                <StatusBadge tone="danger">{overdueCount} overdue</StatusBadge>
+              ) : null}
+              {dueSoonCount > 0 ? (
+                <StatusBadge tone="warning">{dueSoonCount} due soon</StatusBadge>
+              ) : null}
+            </>
+          )}
         </div>
       </Card>
     </Link>

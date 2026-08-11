@@ -23,6 +23,10 @@
   font-size: var(--font-size-sm);
 }
 
+.actionLabelMobile {
+  display: none;
+}
+
 .vehicleGrid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -193,6 +197,38 @@
   .sectionHeader {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .vehicleSectionHeader {
+    flex-direction: row;
+    gap: var(--space-3);
+  }
+
+  .vehicleSectionHeader > div {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .vehicleSectionHeader .addVehicleAction {
+    flex: 0 0 auto;
+    min-height: 2.75rem;
+    padding: 0 var(--space-3);
+    border-color: transparent;
+    background: transparent;
+    color: var(--color-accent);
+  }
+
+  .vehicleSectionHeader .addVehicleAction:hover:not(:disabled) {
+    border-color: var(--color-border);
+    background: var(--color-surface-hover);
+  }
+
+  .actionLabelDesktop {
+    display: none;
+  }
+
+  .actionLabelMobile {
+    display: inline;
   }
 
   .formGrid {
