@@ -4,11 +4,14 @@
   color-scheme: dark;
 
   --color-canvas: #111315;
+  --color-bg: var(--color-canvas);
   --color-surface: #191c1f;
   --color-surface-subtle: #15181a;
   --color-surface-raised: #202428;
   --color-surface-hover: #292e33;
   --color-surface-glow: rgba(86, 156, 214, 0.08);
+  --color-header-background: rgba(17, 19, 21, 0.9);
+  --color-overlay: rgba(0, 0, 0, 0.72);
   --color-border: #30363b;
   --color-border-strong: #3d454c;
   --color-border-interactive: #59636c;
@@ -49,6 +52,7 @@
   --radius-lg: 1rem;
   --radius-pill: 999px;
   --shadow-card: 0 18px 44px rgba(0, 0, 0, 0.22);
+  --shadow-card-hover: 0 22px 52px rgba(0, 0, 0, 0.28);
   --transition-fast: 150ms ease;
   --font-size-xs: 0.75rem;
   --font-size-sm: 0.875rem;
@@ -56,6 +60,59 @@
   --content-max-width: 72rem;
   --page-gutter: clamp(1rem, 3vw, 2rem);
 
+  --background: var(--color-canvas);
+  --foreground: var(--color-text);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --color-canvas: #f4f6f8;
+  --color-surface: #ffffff;
+  --color-surface-subtle: #eef2f5;
+  --color-surface-raised: #ffffff;
+  --color-surface-hover: #e7edf2;
+  --color-surface-glow: rgba(23, 107, 159, 0.1);
+  --color-header-background: rgba(255, 255, 255, 0.9);
+  --color-overlay: rgba(22, 28, 33, 0.58);
+  --color-border: #d7dee4;
+  --color-border-strong: #bcc7d0;
+  --color-border-interactive: #7f8d99;
+  --color-text: #35414a;
+  --color-text-strong: #171d22;
+  --color-text-muted: #65737e;
+  --color-accent: #176b9f;
+  --color-accent-hover: #0f5883;
+  --color-accent-contrast: #ffffff;
+  --color-focus-ring: rgba(23, 107, 159, 0.35);
+
+  --color-success-surface: #eaf7ef;
+  --color-success-border: #a7d8b9;
+  --color-success-text: #1d6b3d;
+  --color-warning-surface: #fff7df;
+  --color-warning-border: #dfc261;
+  --color-warning-text: #735607;
+  --color-danger: #b43b3b;
+  --color-danger-surface: #fff0f0;
+  --color-danger-surface-hover: #ffe1e1;
+  --color-danger-border: #e2aaaa;
+  --color-danger-text: #a22f2f;
+  --color-info-surface: #eaf4fb;
+  --color-info-border: #a6cde5;
+  --color-info-text: #195d86;
+
+  --shadow-card: 0 18px 44px rgba(25, 39, 52, 0.12);
+  --shadow-card-hover: 0 22px 52px rgba(25, 39, 52, 0.16);
+
+  --color-bg: var(--color-canvas);
+  --background: var(--color-canvas);
+  --foreground: var(--color-text);
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --color-bg: var(--color-canvas);
   --background: var(--color-canvas);
   --foreground: var(--color-text);
 }

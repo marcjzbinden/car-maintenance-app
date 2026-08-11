@@ -4,11 +4,23 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import {
+  getStoredThemePreference,
+  persistThemePreference,
+  THEME_STORAGE_KEY,
+  type ThemePreference,
+} from "@/lib/theme";
 import styles from "./foundation.module.css";
 
 type AppHeaderProps = {
   displayName?: string;
 };
+
+const themeOptions: Array<{ label: string; value: ThemePreference }> = [
+  { label: "System", value: "system" },
+  { label: "Light", value: "light" },
+  { label: "Dark", value: "dark" },
+];
 
 function isActivePath(pathname: string, href: string) {
   if (href === "/") {
@@ -23,10 +35,26 @@ export function AppHeader({ displayName }: AppHeaderProps) {
   const router = useRouter();
   const [isOpen, setIsOpen] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
+  const [themePreference, setThemePreference] = useState<ThemePreference>("system");
   const menuRootRef = useRef<HTMLDivElement>(null);
   const menuPanelRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const accountLabel = displayName?.trim() || "Account";
+
+  useEffect(() => {
+    const syncPreference = () => setThemePreference(getStoredThemePreference());
+
+    function handleStorage(event: StorageEvent) {
+      if (event.key === THEME_STORAGE_KEY || event.key === null) syncPreference();
+    }
+
+    syncPreference();
+    window.addEventListener("storage", handleStorage);
+
+    return () => {
+      window.removeEventListener("storage", handleStorage);
+    };
+  }, []);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -77,6 +105,11 @@ export function AppHeader({ displayName }: AppHeaderProps) {
     setIsSigningOut(true);
     await supabase.auth.signOut();
     router.replace("/login");
+  }
+
+  function selectTheme(preference: ThemePreference) {
+    setThemePreference(preference);
+    persistThemePreference(preference);
   }
 
   function navigationLink(href: string, label: string, mobileOnly = false) {
@@ -141,6 +174,25 @@ export function AppHeader({ displayName }: AppHeaderProps) {
               {navigationLink("/profile", "Profile")}
               {navigationLink("/members", "Garage members")}
             </nav>
+            <div className={styles.appMenuDivider} />
+            <fieldset className={styles.themeFieldset}>
+              <legend className={styles.themeLegend}>Theme</legend>
+              <div className={styles.themeOptions}>
+                {themeOptions.map((option) => (
+                  <label key={option.value} className={styles.themeChoice}>
+                    <input
+                      type="radio"
+                      name="app-theme"
+                      value={option.value}
+                      checked={themePreference === option.value}
+                      className={styles.themeChoiceInput}
+                      onChange={() => selectTheme(option.value)}
+                    />
+                    <span className={styles.themeChoiceText}>{option.label}</span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
             <div className={styles.appMenuDivider} />
             <button
               type="button"

@@ -15,6 +15,8 @@ A garage-scoped web app for tracking vehicles and their maintenance. Users can c
 
 Protected routes check authentication in the browser and redirect signed-out users to `/login`.
 
+The authenticated account menu includes System, Light, and Dark theme preferences. The choice is stored only in the browser, and System follows the device color-scheme preference.
+
 The app currently selects the user's first garage membership as the active garage. There is not yet a garage selector.
 
 ## Technology

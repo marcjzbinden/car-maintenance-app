@@ -119,7 +119,7 @@ export default function ProfilePage() {
             {saving ? "Saving..." : "Save"}
           </button>
 
-          {msg && <span style={{ color: msg === "Saved!" ? colors.muted : "#ff8080" }}>{msg}</span>}
+          {msg && <span style={{ color: msg === "Saved!" ? colors.muted : colors.danger }}>{msg}</span>}
         </div>
       </section>
     </AppShell>

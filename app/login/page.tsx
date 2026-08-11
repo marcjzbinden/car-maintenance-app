@@ -137,7 +137,7 @@ export default function LoginPage() {
           </div>
 
           {msg && (
-            <p style={{ margin: 0, color: msg.toLowerCase().includes("error") ? "#ff8080" : colors.muted }}>
+            <p style={{ margin: 0, color: msg.toLowerCase().includes("error") ? colors.danger : colors.muted }}>
               {msg}
             </p>
           )}

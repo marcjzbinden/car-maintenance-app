@@ -1,11 +1,13 @@
 import type { CSSProperties } from "react";
 
 export const colors = {
-  bg: "#1e1e1e",
-  panel: "#252526",
-  border: "#3c3c3c",
-  text: "#e6e6e6",
-  muted: "#a0a0a0",
+  bg: "var(--color-canvas)",
+  panel: "var(--color-surface-raised)",
+  subtle: "var(--color-surface-subtle)",
+  border: "var(--color-border-strong)",
+  text: "var(--color-text-strong)",
+  muted: "var(--color-text-muted)",
+  danger: "var(--color-danger-text)",
 };
 
 export const pageStyle: CSSProperties = {
@@ -31,7 +33,7 @@ export const inputStyle: CSSProperties = {
   padding: 10,
   borderRadius: 10,
   border: `1px solid ${colors.border}`,
-  background: colors.bg,
+  background: colors.subtle,
   color: colors.text,
   marginTop: 6,
 };

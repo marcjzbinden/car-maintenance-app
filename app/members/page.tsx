@@ -201,7 +201,7 @@ export default function MembersPage() {
                     gap: 10,
                     alignItems: "center",
                     padding: "10px 0",
-                    borderBottom: "1px solid rgba(255, 255, 255, 0.1)",
+                    borderBottom: "1px solid var(--color-border)",
                   }}
                 >
                   <div style={{ flex: 1 }}>

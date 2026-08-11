@@ -163,7 +163,7 @@
   align-items: center;
   justify-content: center;
   padding: var(--page-gutter);
-  background: rgba(0, 0, 0, 0.72);
+  background: var(--color-overlay);
 }
 
 .dialog {
