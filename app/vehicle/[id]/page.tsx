@@ -10,6 +10,7 @@ import {
 } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { MaintenanceItemCard, type MaintenanceDisplayStatus } from "@/components/maintenance/MaintenanceItemCard";
+import { VehicleDocumentsSection } from "@/components/documents/VehicleDocumentsSection";
 import { AppShell, Button, Card, PageHeader, StatusBadge } from "@/components/ui";
 import { resolveAuthenticatedGarage } from "@/lib/garageSetup";
 import { supabase } from "@/lib/supabaseClient";
@@ -497,6 +498,14 @@ export default function VehicleDetailPage() {
           </ul>
         )}
       </section>
+
+      {userId ? (
+        <VehicleDocumentsSection
+          garageId={vehicle.garage_id}
+          vehicleId={vehicle.id}
+          currentUserId={userId}
+        />
+      ) : null}
 
       {editingItem ? (
         <div className={styles.dialogOverlay}>

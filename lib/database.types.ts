@@ -180,6 +180,60 @@ export type Database = {
         }
         Relationships: []
       }
+      vehicle_documents: {
+        Row: {
+          created_at: string
+          document_date: string | null
+          document_type: string | null
+          filename: string
+          garage_id: string
+          id: string
+          mime_type: string
+          storage_path: string
+          uploaded_by: string | null
+          vehicle_id: string
+        }
+        Insert: {
+          created_at?: string
+          document_date?: string | null
+          document_type?: string | null
+          filename: string
+          garage_id: string
+          id?: string
+          mime_type: string
+          storage_path: string
+          uploaded_by?: string | null
+          vehicle_id: string
+        }
+        Update: {
+          created_at?: string
+          document_date?: string | null
+          document_type?: string | null
+          filename?: string
+          garage_id?: string
+          id?: string
+          mime_type?: string
+          storage_path?: string
+          uploaded_by?: string | null
+          vehicle_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vehicle_documents_garage_id_fkey"
+            columns: ["garage_id"]
+            isOneToOne: false
+            referencedRelation: "garages"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "vehicle_documents_vehicle_garage_id_fkey"
+            columns: ["vehicle_id", "garage_id"]
+            isOneToOne: false
+            referencedRelation: "vehicles"
+            referencedColumns: ["id", "garage_id"]
+          },
+        ]
+      }
       vehicles: {
         Row: {
           created_at: string
