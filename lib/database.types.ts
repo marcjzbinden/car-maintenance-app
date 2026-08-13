@@ -180,6 +180,56 @@ export type Database = {
         }
         Relationships: []
       }
+      vehicle_document_reviews: {
+        Row: {
+          completed_work: string[]
+          document_date: string | null
+          document_id: string
+          document_type: string
+          expiration_date: string | null
+          mileage: number | null
+          provider: string | null
+          recommendations: string[]
+          reviewed_at: string
+          reviewed_by: string | null
+          total_cost: number | null
+        }
+        Insert: {
+          completed_work?: string[]
+          document_date?: string | null
+          document_id: string
+          document_type: string
+          expiration_date?: string | null
+          mileage?: number | null
+          provider?: string | null
+          recommendations?: string[]
+          reviewed_at: string
+          reviewed_by?: string | null
+          total_cost?: number | null
+        }
+        Update: {
+          completed_work?: string[]
+          document_date?: string | null
+          document_id?: string
+          document_type?: string
+          expiration_date?: string | null
+          mileage?: number | null
+          provider?: string | null
+          recommendations?: string[]
+          reviewed_at?: string
+          reviewed_by?: string | null
+          total_cost?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vehicle_document_reviews_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: true
+            referencedRelation: "vehicle_documents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       vehicle_documents: {
         Row: {
           created_at: string

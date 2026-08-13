@@ -83,9 +83,10 @@ Copy `.env.local.example` to `.env.local`, then supply the project-specific valu
 ```dotenv
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=
+OPENAI_API_KEY=
 ```
 
-Obtain the values from the project's Supabase configuration. Never commit `.env.local` or expose a Supabase service-role key through a `NEXT_PUBLIC_*` variable.
+Obtain the Supabase values from the project's Supabase configuration. `OPENAI_API_KEY` is used only by the server-side document-analysis route and must never be prefixed with `NEXT_PUBLIC_`. Never commit `.env.local` or expose a Supabase service-role key through a `NEXT_PUBLIC_*` variable.
 
 ## Running locally
 
@@ -163,7 +164,7 @@ Do not commit, push, merge, or deploy unless that action is explicitly intended.
 
 GitHub is connected to the existing Vercel `car-maintenance-app` project. Pushes to `main` currently trigger a production deployment.
 
-The required Supabase variables must be configured in the Vercel project's environment settings. Assign them to the appropriate Development, Preview, and Production environments when those environments are used.
+The required Supabase variables and server-only `OPENAI_API_KEY` must be configured in the Vercel project's environment settings. Assign them to the appropriate Development, Preview, and Production environments when those environments are used.
 
 The repository does not contain a tracked `vercel.json`; deployment behavior beyond the existing GitHub integration is controlled through the Vercel project settings.
 

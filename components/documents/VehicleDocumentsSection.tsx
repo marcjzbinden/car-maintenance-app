@@ -10,12 +10,30 @@ import {
 } from "react";
 import { Button, Card, StatusBadge } from "@/components/ui";
 import type { Tables, TablesInsert } from "@/lib/database.types";
+import {
+  isAnalyzableDocumentMimeType,
+  isDocumentAnalysisResult,
+  type DocumentAnalysisResult,
+  type DocumentReviewDraft,
+  type DocumentReviewValues,
+} from "@/lib/documentAnalysis";
 import { supabase } from "@/lib/supabaseClient";
 import { createUuidV4 } from "@/lib/uuid";
+import {
+  DocumentAnalysisProposal,
+  DocumentReviewForm,
+  SavedDocumentReview,
+} from "./DocumentAnalysisReview";
 import styles from "./VehicleDocumentsSection.module.css";
 
 type VehicleDocument = Tables<"vehicle_documents">;
 type VehicleDocumentInsert = TablesInsert<"vehicle_documents">;
+type VehicleDocumentReview = Tables<"vehicle_document_reviews">;
+type VehicleDocumentReviewInsert = TablesInsert<"vehicle_document_reviews">;
+type ReviewWritePayload = Omit<
+  VehicleDocumentReviewInsert,
+  "reviewed_at" | "reviewed_by"
+>;
 type DocumentType =
   | "repair_invoice"
   | "registration"
@@ -120,12 +138,83 @@ function getFriendlyDocumentType(value: string | null) {
   return documentTypeLabels[value as DocumentType] ?? value;
 }
 
+function createReviewDraft(
+  values: DocumentReviewValues | VehicleDocumentReview,
+): DocumentReviewDraft {
+  return {
+    document_type: values.document_type as DocumentType,
+    document_date: values.document_date ?? "",
+    expiration_date: values.expiration_date ?? "",
+    mileage: values.mileage === null ? "" : String(values.mileage),
+    provider: values.provider ?? "",
+    total_cost: values.total_cost === null ? "" : String(values.total_cost),
+    completed_work: [...values.completed_work],
+    recommendations: [...values.recommendations],
+  };
+}
+
+function normalizeReviewDraft(
+  documentId: string,
+  draft: DocumentReviewDraft,
+): { payload: ReviewWritePayload; error: null } | { payload: null; error: string } {
+  const mileageText = draft.mileage.trim();
+  const totalCostText = draft.total_cost.trim();
+
+  if (mileageText && !/^\d+$/.test(mileageText)) {
+    return { payload: null, error: "Mileage must be a nonnegative whole number." };
+  }
+
+  const mileage = mileageText ? Number(mileageText) : null;
+  if (
+    mileage !== null &&
+    (!Number.isSafeInteger(mileage) || mileage < 0 || mileage > 2147483647)
+  ) {
+    return { payload: null, error: "Mileage is outside the supported range." };
+  }
+
+  if (totalCostText && !/^\d+(?:\.\d{1,2})?$/.test(totalCostText)) {
+    return {
+      payload: null,
+      error: "Total cost must be a nonnegative amount with no more than two decimals.",
+    };
+  }
+
+  const totalCost = totalCostText ? Number(totalCostText) : null;
+  if (
+    totalCost !== null &&
+    (!Number.isFinite(totalCost) || totalCost < 0 || totalCost > 9999999999.99)
+  ) {
+    return { payload: null, error: "Total cost is outside the supported range." };
+  }
+
+  const cleanItems = (items: string[]) =>
+    items.map((item) => item.trim()).filter((item) => item.length > 0);
+
+  return {
+    payload: {
+      document_id: documentId,
+      document_type: draft.document_type,
+      document_date: draft.document_date || null,
+      expiration_date: draft.expiration_date || null,
+      mileage,
+      provider: draft.provider.trim() || null,
+      total_cost: totalCost,
+      completed_work: cleanItems(draft.completed_work),
+      recommendations: cleanItems(draft.recommendations),
+    },
+    error: null,
+  };
+}
+
 export function VehicleDocumentsSection({
   garageId,
   vehicleId,
   currentUserId,
 }: VehicleDocumentsSectionProps) {
   const [documents, setDocuments] = useState<VehicleDocument[]>([]);
+  const [reviewsByDocumentId, setReviewsByDocumentId] = useState<
+    Record<string, VehicleDocumentReview>
+  >({});
   const [isGarageOwner, setIsGarageOwner] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -140,10 +229,37 @@ export function VehicleDocumentsSection({
   const [openingDocumentId, setOpeningDocumentId] = useState<string | null>(null);
   const [downloadingDocumentId, setDownloadingDocumentId] = useState<string | null>(null);
   const [deletingDocumentId, setDeletingDocumentId] = useState<string | null>(null);
+  const [analyzingDocumentId, setAnalyzingDocumentId] = useState<string | null>(null);
+  const [openActionMenuDocumentId, setOpenActionMenuDocumentId] = useState<
+    string | null
+  >(null);
+  const [analysisByDocumentId, setAnalysisByDocumentId] = useState<
+    Record<string, DocumentAnalysisResult>
+  >({});
+  const [analysisErrorByDocumentId, setAnalysisErrorByDocumentId] = useState<
+    Record<string, string>
+  >({});
+  const [draftByDocumentId, setDraftByDocumentId] = useState<
+    Record<string, DocumentReviewDraft>
+  >({});
+  const [draftOriginByDocumentId, setDraftOriginByDocumentId] = useState<
+    Record<string, "ai" | "saved">
+  >({});
+  const [draftEvidenceByDocumentId, setDraftEvidenceByDocumentId] = useState<
+    Record<string, string | null>
+  >({});
+  const [savingReviewDocumentId, setSavingReviewDocumentId] = useState<string | null>(
+    null,
+  );
+  const [reviewErrorByDocumentId, setReviewErrorByDocumentId] = useState<
+    Record<string, string>
+  >({});
 
   const uploadTriggerRef = useRef<HTMLButtonElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const actionMenuRef = useRef<HTMLDivElement>(null);
+  const actionMenuTriggerRef = useRef<HTMLButtonElement>(null);
 
   const canUpload = useMemo(
     () => selectedFile !== null && !isUploading,
@@ -167,8 +283,34 @@ export function VehicleDocumentsSection({
       return;
     }
 
+    const loadedDocuments = (documentResult.data ?? []) as VehicleDocument[];
+    let loadedReviews: VehicleDocumentReview[] = [];
+
+    if (loadedDocuments.length > 0) {
+      const reviewResult = await supabase
+        .from("vehicle_document_reviews")
+        .select("*")
+        .in(
+          "document_id",
+          loadedDocuments.map((document) => document.id),
+        );
+
+      if (reviewResult.error) {
+        setLoadError(`Document reviews could not be loaded. ${reviewResult.error.message}`);
+        setIsLoading(false);
+        return;
+      }
+
+      loadedReviews = (reviewResult.data ?? []) as VehicleDocumentReview[];
+    }
+
     setLoadError(null);
-    setDocuments((documentResult.data ?? []) as VehicleDocument[]);
+    setDocuments(loadedDocuments);
+    setReviewsByDocumentId(
+      Object.fromEntries(
+        loadedReviews.map((review) => [review.document_id, review]),
+      ),
+    );
     setIsGarageOwner(ownerResult.error ? false : ownerResult.data === true);
     setIsLoading(false);
   }, [garageId, vehicleId]);
@@ -184,6 +326,53 @@ export function VehicleDocumentsSection({
     const focusTimer = window.setTimeout(() => fileInputRef.current?.focus(), 0);
     return () => window.clearTimeout(focusTimer);
   }, [showUpload]);
+
+  useEffect(() => {
+    if (!openActionMenuDocumentId) return;
+
+    function closeActionMenu(restoreFocus: boolean) {
+      setOpenActionMenuDocumentId(null);
+      if (restoreFocus) {
+        window.requestAnimationFrame(() => actionMenuTriggerRef.current?.focus());
+      }
+    }
+
+    function handlePointerDown(event: PointerEvent) {
+      if (
+        event.target instanceof Node &&
+        !actionMenuRef.current?.contains(event.target)
+      ) {
+        closeActionMenu(false);
+      }
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      closeActionMenu(true);
+    }
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [openActionMenuDocumentId]);
+
+  function toggleActionMenu(
+    documentId: string,
+    trigger: HTMLButtonElement,
+  ) {
+    actionMenuTriggerRef.current = trigger;
+    setOpenActionMenuDocumentId((current) =>
+      current === documentId ? null : documentId,
+    );
+  }
+
+  function closeActionMenu() {
+    setOpenActionMenuDocumentId(null);
+  }
 
   function resetUploadForm() {
     setSelectedFile(null);
@@ -370,9 +559,294 @@ export function VehicleDocumentsSection({
     }
 
     setDocuments((current) => current.filter((item) => item.id !== document.id));
+    setAnalysisByDocumentId((current) => {
+      const next = { ...current };
+      delete next[document.id];
+      return next;
+    });
+    setAnalysisErrorByDocumentId((current) => {
+      const next = { ...current };
+      delete next[document.id];
+      return next;
+    });
+    setReviewsByDocumentId((current) => {
+      const next = { ...current };
+      delete next[document.id];
+      return next;
+    });
+    setDraftByDocumentId((current) => {
+      const next = { ...current };
+      delete next[document.id];
+      return next;
+    });
+    setDraftOriginByDocumentId((current) => {
+      const next = { ...current };
+      delete next[document.id];
+      return next;
+    });
+    setDraftEvidenceByDocumentId((current) => {
+      const next = { ...current };
+      delete next[document.id];
+      return next;
+    });
+    setReviewErrorByDocumentId((current) => {
+      const next = { ...current };
+      delete next[document.id];
+      return next;
+    });
     setDeletingDocumentId(null);
     setAnnouncement(`${document.filename} deleted.`);
     window.requestAnimationFrame(() => headingRef.current?.focus());
+  }
+
+  function setReviewDraft(
+    documentId: string,
+    draft: DocumentReviewDraft,
+    origin: "ai" | "saved",
+    evidence: string | null = null,
+  ) {
+    setDraftByDocumentId((current) => ({ ...current, [documentId]: draft }));
+    setDraftOriginByDocumentId((current) => ({
+      ...current,
+      [documentId]: origin,
+    }));
+    setDraftEvidenceByDocumentId((current) => ({
+      ...current,
+      [documentId]: evidence,
+    }));
+    setReviewErrorByDocumentId((current) => {
+      const next = { ...current };
+      delete next[documentId];
+      return next;
+    });
+  }
+
+  function clearReviewDraft(documentId: string) {
+    setDraftByDocumentId((current) => {
+      const next = { ...current };
+      delete next[documentId];
+      return next;
+    });
+    setDraftOriginByDocumentId((current) => {
+      const next = { ...current };
+      delete next[documentId];
+      return next;
+    });
+    setDraftEvidenceByDocumentId((current) => {
+      const next = { ...current };
+      delete next[documentId];
+      return next;
+    });
+    setReviewErrorByDocumentId((current) => {
+      const next = { ...current };
+      delete next[documentId];
+      return next;
+    });
+  }
+
+  function editSavedReview(review: VehicleDocumentReview) {
+    setReviewDraft(review.document_id, createReviewDraft(review), "saved");
+  }
+
+  function applyProposalAsDraft(
+    documentId: string,
+    analysis: DocumentAnalysisResult,
+  ) {
+    if (
+      draftByDocumentId[documentId] &&
+      !window.confirm("Replace your current unsaved review edits with this AI proposal?")
+    ) {
+      return;
+    }
+
+    setReviewDraft(
+      documentId,
+      createReviewDraft(analysis),
+      "ai",
+      analysis.document_date_evidence,
+    );
+  }
+
+  function discardProposal(documentId: string) {
+    setAnalysisByDocumentId((current) => {
+      const next = { ...current };
+      delete next[documentId];
+      return next;
+    });
+  }
+
+  async function saveReview(
+    document: VehicleDocument,
+    event: FormEvent<HTMLFormElement>,
+  ) {
+    event.preventDefault();
+    if (savingReviewDocumentId !== null) return;
+
+    const draft = draftByDocumentId[document.id];
+    if (!draft) return;
+
+    const normalized = normalizeReviewDraft(document.id, draft);
+    if (normalized.error) {
+      setReviewErrorByDocumentId((current) => ({
+        ...current,
+        [document.id]: normalized.error,
+      }));
+      return;
+    }
+
+    setSavingReviewDocumentId(document.id);
+    setReviewErrorByDocumentId((current) => {
+      const next = { ...current };
+      delete next[document.id];
+      return next;
+    });
+    setAnnouncement("");
+
+    const existingReview = reviewsByDocumentId[document.id];
+    const mutation = existingReview
+      ? supabase
+          .from("vehicle_document_reviews")
+          .update(normalized.payload)
+          .eq("document_id", document.id)
+          .select("document_id")
+          .maybeSingle()
+      : supabase
+          .from("vehicle_document_reviews")
+          .insert(normalized.payload)
+          .select("document_id")
+          .maybeSingle();
+    const { data: changedReview, error: saveError } = await mutation;
+
+    if (saveError || !changedReview) {
+      setReviewErrorByDocumentId((current) => ({
+        ...current,
+        [document.id]:
+          saveError?.message ?? "The review was not saved. Check your access and retry.",
+      }));
+      setSavingReviewDocumentId(null);
+      return;
+    }
+
+    const { data: savedReview, error: reloadError } = await supabase
+      .from("vehicle_document_reviews")
+      .select("*")
+      .eq("document_id", document.id)
+      .single();
+
+    if (reloadError || !savedReview) {
+      setReviewErrorByDocumentId((current) => ({
+        ...current,
+        [document.id]:
+          reloadError?.message ??
+          "The review saved, but its persisted values could not be reloaded.",
+      }));
+      setSavingReviewDocumentId(null);
+      return;
+    }
+
+    setReviewsByDocumentId((current) => ({
+      ...current,
+      [document.id]: savedReview as VehicleDocumentReview,
+    }));
+    clearReviewDraft(document.id);
+    setAnalysisByDocumentId((current) => {
+      const next = { ...current };
+      delete next[document.id];
+      return next;
+    });
+    setSavingReviewDocumentId(null);
+    setAnnouncement(`${document.filename} review saved.`);
+  }
+
+  async function analyzeDocument(document: VehicleDocument) {
+    if (analyzingDocumentId !== null) return;
+
+    if (!isAnalyzableDocumentMimeType(document.mime_type)) {
+      setAnalysisErrorByDocumentId((current) => ({
+        ...current,
+        [document.id]:
+          "AI analysis currently supports PDF, JPEG, PNG, and WebP documents. HEIC and HEIF analysis is not available yet.",
+      }));
+      return;
+    }
+
+    setAnalyzingDocumentId(document.id);
+    setAnalysisErrorByDocumentId((current) => {
+      const next = { ...current };
+      delete next[document.id];
+      return next;
+    });
+
+    const { data: sessionData, error: sessionError } =
+      await supabase.auth.getSession();
+    if (sessionError || !sessionData.session?.access_token) {
+      setAnalysisErrorByDocumentId((current) => ({
+        ...current,
+        [document.id]: "Your session is no longer valid. Sign in again.",
+      }));
+      setAnalyzingDocumentId(null);
+      return;
+    }
+
+    try {
+      const response = await fetch("/api/documents/analyze", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${sessionData.session.access_token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ documentId: document.id }),
+      });
+      const result: unknown = await response.json();
+
+      if (
+        !response.ok ||
+        typeof result !== "object" ||
+        result === null ||
+        !("analysis" in result) ||
+        !isDocumentAnalysisResult(result.analysis)
+      ) {
+        const message =
+          typeof result === "object" &&
+          result !== null &&
+          "error" in result &&
+          typeof result.error === "string"
+            ? result.error
+            : "AI analysis failed. Please try again.";
+        throw new Error(message);
+      }
+
+      const analysis = result.analysis;
+      if (!reviewsByDocumentId[document.id] && !draftByDocumentId[document.id]) {
+        setAnalysisByDocumentId((current) => {
+          const next = { ...current };
+          delete next[document.id];
+          return next;
+        });
+        setReviewDraft(
+          document.id,
+          createReviewDraft(analysis),
+          "ai",
+          analysis.document_date_evidence,
+        );
+      } else {
+        setAnalysisByDocumentId((current) => ({
+          ...current,
+          [document.id]: analysis,
+        }));
+      }
+      setAnnouncement(`${document.filename} analyzed. Review the extracted proposal.`);
+    } catch (error: unknown) {
+      setAnalysisErrorByDocumentId((current) => ({
+        ...current,
+        [document.id]:
+          error instanceof Error
+            ? error.message
+            : "AI analysis failed. Please try again.",
+      }));
+    } finally {
+      setAnalyzingDocumentId(null);
+    }
   }
 
   return (
@@ -541,59 +1015,201 @@ export function VehicleDocumentsSection({
       ) : (
         <ul className={styles.documentList}>
           {documents.map((document) => {
-            const friendlyType = getFriendlyDocumentType(document.document_type);
+            const savedReview = reviewsByDocumentId[document.id];
+            const friendlyType = getFriendlyDocumentType(
+              savedReview?.document_type ?? document.document_type,
+            );
+            const displayDocumentDate = savedReview
+              ? savedReview.document_date
+              : document.document_date;
             const canDelete = document.uploaded_by === currentUserId || isGarageOwner;
             const isOpening = openingDocumentId === document.id;
             const isDownloading = downloadingDocumentId === document.id;
             const isDeleting = deletingDocumentId === document.id;
+            const isAnalyzing = analyzingDocumentId === document.id;
+            const analysis = analysisByDocumentId[document.id];
+            const analysisError = analysisErrorByDocumentId[document.id];
+            const reviewDraft = draftByDocumentId[document.id];
+            const reviewError = reviewErrorByDocumentId[document.id];
+            const isSavingReview = savingReviewDocumentId === document.id;
+            const isAiDraft = draftOriginByDocumentId[document.id] === "ai";
+            const draftEvidence = draftEvidenceByDocumentId[document.id] ?? null;
 
             return (
               <li key={document.id}>
                 <Card padding="md" className={styles.documentCard}>
                   <div className={styles.documentContent}>
-                    <div className={styles.documentDetails}>
-                      <div className={styles.documentHeading}>
-                        <h3 className={styles.filename}>{document.filename}</h3>
-                        {friendlyType ? (
-                          <StatusBadge tone="info">{friendlyType}</StatusBadge>
-                        ) : null}
+                    <div className={styles.documentMainRow}>
+                      <div className={styles.documentDetails}>
+                        <div className={styles.documentHeading}>
+                          <h3 className={styles.filename}>{document.filename}</h3>
+                          {friendlyType ? (
+                            <StatusBadge tone="info">{friendlyType}</StatusBadge>
+                          ) : null}
+                          {savedReview ? (
+                            <StatusBadge tone="success">Saved review</StatusBadge>
+                          ) : null}
+                        </div>
+                        <div className={styles.documentMeta}>
+                          {displayDocumentDate ? (
+                            <span>Document date {formatDateOnly(displayDocumentDate)}</span>
+                          ) : null}
+                          <span>Uploaded {formatTimestamp(document.created_at)}</span>
+                        </div>
                       </div>
-                      <div className={styles.documentMeta}>
-                        {document.document_date ? (
-                          <span>Document date {formatDateOnly(document.document_date)}</span>
+
+                      <div className={styles.documentActions}>
+                        {!savedReview ? (
+                          <Button
+                            size="sm"
+                            variant="primary"
+                            disabled={
+                              analyzingDocumentId !== null ||
+                              isOpening ||
+                              isDownloading ||
+                              isDeleting
+                            }
+                            onClick={() => void analyzeDocument(document)}
+                          >
+                            {isAnalyzing ? "Analyzing…" : "Analyze"}
+                          </Button>
                         ) : null}
-                        <span>Uploaded {formatTimestamp(document.created_at)}</span>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          disabled={isOpening || isDownloading || isDeleting || isAnalyzing}
+                          onClick={() => void openDocument(document, false)}
+                        >
+                          {isOpening ? "Opening…" : "Open"}
+                        </Button>
+
+                        <div
+                          ref={
+                            openActionMenuDocumentId === document.id
+                              ? actionMenuRef
+                              : undefined
+                          }
+                          className={styles.actionMenuRoot}
+                        >
+                          <button
+                            type="button"
+                            className={styles.actionMenuTrigger}
+                            aria-label={`More actions for ${document.filename}`}
+                            aria-expanded={openActionMenuDocumentId === document.id}
+                            aria-controls={`document-actions-${document.id}`}
+                            disabled={isOpening || isDownloading || isDeleting || isAnalyzing}
+                            onClick={(event) =>
+                              toggleActionMenu(document.id, event.currentTarget)
+                            }
+                          >
+                            <span aria-hidden="true">•••</span>
+                          </button>
+
+                          {openActionMenuDocumentId === document.id ? (
+                            <div
+                              id={`document-actions-${document.id}`}
+                              className={styles.actionMenu}
+                              role="group"
+                              aria-label={`More actions for ${document.filename}`}
+                            >
+                              {savedReview ? (
+                                <button
+                                  type="button"
+                                  className={styles.actionMenuItem}
+                                  disabled={analyzingDocumentId !== null}
+                                  onClick={() => {
+                                    closeActionMenu();
+                                    void analyzeDocument(document);
+                                  }}
+                                >
+                                  Re-analyze
+                                </button>
+                              ) : null}
+                              <button
+                                type="button"
+                                className={styles.actionMenuItem}
+                                onClick={() => {
+                                  closeActionMenu();
+                                  void openDocument(document, true);
+                                }}
+                              >
+                                Download
+                              </button>
+                              {canDelete ? (
+                                <>
+                                  <div
+                                    className={styles.actionMenuSeparator}
+                                    role="separator"
+                                  />
+                                  <button
+                                    type="button"
+                                    className={`${styles.actionMenuItem} ${styles.actionMenuDanger}`}
+                                    onClick={() => {
+                                      closeActionMenu();
+                                      void deleteDocument(document);
+                                    }}
+                                  >
+                                    Delete document
+                                  </button>
+                                </>
+                              ) : null}
+                            </div>
+                          ) : null}
+                        </div>
                       </div>
                     </div>
 
-                    <div className={styles.documentActions}>
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        disabled={isOpening || isDownloading || isDeleting}
-                        onClick={() => void openDocument(document, false)}
-                      >
-                        {isOpening ? "Opening…" : "Open"}
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        disabled={isOpening || isDownloading || isDeleting}
-                        onClick={() => void openDocument(document, true)}
-                      >
-                        {isDownloading ? "Preparing…" : "Download"}
-                      </Button>
-                      {canDelete ? (
-                        <Button
-                          size="sm"
-                          variant="danger"
-                          disabled={isOpening || isDownloading || isDeleting}
-                          onClick={() => void deleteDocument(document)}
-                        >
-                          {isDeleting ? "Deleting…" : "Delete"}
-                        </Button>
-                      ) : null}
-                    </div>
+                    {isAnalyzing ? (
+                      <p className={styles.analysisStatus} role="status">
+                        Analyzing the private original document…
+                      </p>
+                    ) : null}
+                    {analysisError ? (
+                      <p className={styles.analysisError} role="alert">
+                        {analysisError}
+                      </p>
+                    ) : null}
+                    {savedReview ? (
+                      <SavedDocumentReview
+                        review={savedReview}
+                        isEditing={reviewDraft !== undefined}
+                        onEdit={() => editSavedReview(savedReview)}
+                      />
+                    ) : null}
+
+                    {analysis ? (
+                      <DocumentAnalysisProposal
+                        analysis={analysis}
+                        onDiscardProposal={() => discardProposal(document.id)}
+                        onUseProposal={() =>
+                          applyProposalAsDraft(document.id, analysis)
+                        }
+                      />
+                    ) : null}
+
+                    {reviewDraft ? (
+                      <DocumentReviewForm
+                        draft={reviewDraft}
+                        evidence={isAiDraft ? draftEvidence : null}
+                        isSaving={isSavingReview}
+                        error={reviewError ?? null}
+                        isAiDraft={isAiDraft}
+                        onChange={(draft) =>
+                          setDraftByDocumentId((current) => ({
+                            ...current,
+                            [document.id]: draft,
+                          }))
+                        }
+                        onCancel={() => clearReviewDraft(document.id)}
+                        onSubmit={(event) => void saveReview(document, event)}
+                      />
+                    ) : null}
+
+                    {!reviewDraft && reviewError ? (
+                      <p className={styles.analysisError} role="alert">
+                        {reviewError}
+                      </p>
+                    ) : null}
                   </div>
                 </Card>
               </li>
