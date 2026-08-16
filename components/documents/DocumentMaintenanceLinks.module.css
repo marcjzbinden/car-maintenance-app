@@ -25,6 +25,7 @@
 .itemMeta,
 .emptyCopy,
 .invoiceValues p,
+.choiceTitle,
 .helperCopy,
 .error {
   margin: 0;
@@ -44,13 +45,26 @@
   list-style: none;
 }
 
-.linkedItem {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
+.linkedEntry {
   padding-top: var(--space-2);
   border-top: 1px solid var(--color-border);
+}
+
+.linkedItem,
+.linkedActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.linkedItem {
+  justify-content: space-between;
+}
+
+.linkedActions {
+  flex: 0 0 auto;
+  justify-content: flex-end;
+  flex-wrap: wrap;
 }
 
 .itemTitle {
@@ -153,6 +167,22 @@
   background: var(--color-surface-subtle);
 }
 
+.applyDetails {
+  display: grid;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-subtle);
+}
+
+.choiceTitle {
+  color: var(--color-text-strong);
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+}
+
 .checkboxChoice {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -190,9 +220,14 @@
 
   .linkedItem {
     align-items: flex-start;
+    flex-direction: column;
   }
 
-  .linkedItem > button,
+  .linkedActions {
+    align-self: stretch;
+  }
+
+  .linkedActions > button,
   .headingRow > button {
     min-height: 2.75rem;
   }

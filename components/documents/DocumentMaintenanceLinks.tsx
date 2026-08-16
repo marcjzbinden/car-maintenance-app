@@ -15,6 +15,8 @@ type MaintenanceItem = Pick<
   | "due_date"
   | "completed_at"
   | "service_mileage"
+  | "service_provider"
+  | "self_performed"
   | "created_at"
 >;
 
@@ -82,8 +84,18 @@ export function DocumentMaintenanceLinks({
   const [showChooser, setShowChooser] = useState(false);
   const [selectedMaintenanceItemId, setSelectedMaintenanceItemId] = useState("");
   const [markCompletedFromInvoice, setMarkCompletedFromInvoice] = useState(false);
+  const [replaceCompletionDateFromInvoice, setReplaceCompletionDateFromInvoice] =
+    useState(false);
   const [useInvoiceMileage, setUseInvoiceMileage] = useState(false);
+  const [useInvoiceProvider, setUseInvoiceProvider] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [applyingMaintenanceItemId, setApplyingMaintenanceItemId] = useState<
+    string | null
+  >(null);
+  const [applyLinkedCompletionDate, setApplyLinkedCompletionDate] = useState(false);
+  const [applyLinkedMileage, setApplyLinkedMileage] = useState(false);
+  const [applyLinkedProvider, setApplyLinkedProvider] = useState(false);
+  const [savingLinkedDetails, setSavingLinkedDetails] = useState(false);
   const [unlinkingMaintenanceItemId, setUnlinkingMaintenanceItemId] = useState<
     string | null
   >(null);
@@ -127,11 +139,14 @@ export function DocumentMaintenanceLinks({
     && review.document_date,
   );
   const hasInvoiceMileage = review.mileage !== null && review.mileage >= 0;
+  const reviewedProvider = review.provider?.trim() || null;
 
   function resetChooser() {
     setSelectedMaintenanceItemId("");
     setMarkCompletedFromInvoice(false);
+    setReplaceCompletionDateFromInvoice(false);
     setUseInvoiceMileage(false);
+    setUseInvoiceProvider(false);
     setError(null);
   }
 
@@ -147,6 +162,70 @@ export function DocumentMaintenanceLinks({
     ]);
 
     return results.some((result) => result.status === "rejected");
+  }
+
+  async function updateMaintenanceFromInvoice(
+    item: MaintenanceItem,
+    useCompletionDate: boolean,
+    useServiceMileage: boolean,
+    useServiceProvider: boolean,
+  ) {
+    const updatePayload: {
+      completed_at?: string;
+      service_mileage?: number;
+      service_provider?: string | null;
+      self_performed?: boolean;
+    } = {};
+
+    if (useCompletionDate) {
+      if (!review.document_date) {
+        return "The reviewed invoice does not contain a service date.";
+      }
+
+      const completedAt = dateOnlyToNoonUtc(review.document_date);
+      if (!completedAt) {
+        return "The invoice date could not be converted safely.";
+      }
+      updatePayload.completed_at = completedAt;
+    }
+
+    if (useServiceMileage) {
+      if (!hasInvoiceMileage || review.mileage === null) {
+        return "The reviewed invoice does not contain valid service mileage.";
+      }
+      updatePayload.service_mileage = review.mileage;
+    }
+
+    if (useServiceProvider) {
+      if (!reviewedProvider) {
+        return "The reviewed invoice does not contain a service provider.";
+      }
+      updatePayload.service_provider = reviewedProvider;
+      updatePayload.self_performed = false;
+    }
+
+    if (Object.keys(updatePayload).length === 0) return null;
+
+    let updateQuery = supabase
+      .from("maintenance_items")
+      .update(updatePayload)
+      .eq("id", item.id)
+      .eq("vehicle_id", vehicleId);
+
+    updateQuery = item.completed_at
+      ? updateQuery.eq("completed_at", item.completed_at)
+      : updateQuery.is("completed_at", null);
+
+    const { data: updatedItem, error: updateError } = await updateQuery
+      .select("id")
+      .maybeSingle();
+
+    if (updateError || !updatedItem) {
+      return updateError?.message
+        ?? "The maintenance item changed or could not be updated.";
+    }
+
+    return null;
   }
 
   async function linkMaintenance(event: FormEvent<HTMLFormElement>) {
@@ -180,43 +259,23 @@ export function DocumentMaintenanceLinks({
       return;
     }
 
-    let completionError: string | null = null;
-    if (
-      markCompletedFromInvoice
-      && canOfferInvoiceCompletion
-      && review.document_date
-    ) {
-      const completedAt = dateOnlyToNoonUtc(review.document_date);
-
-      if (!completedAt) {
-        completionError = "The invoice date could not be converted safely.";
-      } else {
-        const updatePayload: {
-          completed_at: string;
-          service_mileage?: number;
-        } = {
-          completed_at: completedAt,
-        };
-
-        if (useInvoiceMileage && hasInvoiceMileage && review.mileage !== null) {
-          updatePayload.service_mileage = review.mileage;
-        }
-
-        const { data: completedItem, error: updateError } = await supabase
-          .from("maintenance_items")
-          .update(updatePayload)
-          .eq("id", selectedMaintenanceItem.id)
-          .eq("vehicle_id", vehicleId)
-          .is("completed_at", null)
-          .select("id")
-          .maybeSingle();
-
-        if (updateError || !completedItem) {
-          completionError = updateError?.message
-            ?? "The maintenance item was no longer open or could not be updated.";
-        }
-      }
-    }
+    const useCompletionDate = selectedMaintenanceItem.completed_at
+      ? replaceCompletionDateFromInvoice
+      : markCompletedFromInvoice && canOfferInvoiceCompletion;
+    const useServiceMileage = selectedMaintenanceItem.completed_at
+      ? useInvoiceMileage
+      : markCompletedFromInvoice && useInvoiceMileage;
+    const useServiceProvider = useInvoiceProvider && Boolean(reviewedProvider);
+    const maintenanceUpdateRequested =
+      useCompletionDate || useServiceMileage || useServiceProvider;
+    const maintenanceUpdateError = maintenanceUpdateRequested
+      ? await updateMaintenanceFromInvoice(
+          selectedMaintenanceItem,
+          useCompletionDate,
+          useServiceMileage,
+          useServiceProvider,
+        )
+      : null;
 
     const refreshFailed = await refreshRelatedData();
 
@@ -224,11 +283,13 @@ export function DocumentMaintenanceLinks({
     setShowChooser(false);
     setSelectedMaintenanceItemId("");
     setMarkCompletedFromInvoice(false);
+    setReplaceCompletionDateFromInvoice(false);
     setUseInvoiceMileage(false);
+    setUseInvoiceProvider(false);
 
-    if (completionError) {
+    if (maintenanceUpdateError) {
       setError(
-        `Document linked, but maintenance completion/details were not updated. ${completionError}`,
+        `Document linked, but maintenance details were not updated. ${maintenanceUpdateError}`,
       );
       onAnnounce("Document linked, but maintenance details were not updated.");
     } else if (refreshFailed) {
@@ -239,10 +300,87 @@ export function DocumentMaintenanceLinks({
     } else {
       setError(null);
       onAnnounce(
-        markCompletedFromInvoice
-          ? "Document linked and maintenance marked completed."
+        maintenanceUpdateRequested
+          ? "Document linked and selected maintenance details updated."
           : "Document linked to maintenance.",
       );
+    }
+  }
+
+  function closeApplyDetails() {
+    setApplyingMaintenanceItemId(null);
+    setApplyLinkedCompletionDate(false);
+    setApplyLinkedMileage(false);
+    setApplyLinkedProvider(false);
+    setSavingLinkedDetails(false);
+    setError(null);
+  }
+
+  function toggleApplyDetails(item: MaintenanceItem) {
+    if (applyingMaintenanceItemId === item.id) {
+      closeApplyDetails();
+      return;
+    }
+
+    if (showChooser) closeChooser();
+    setApplyingMaintenanceItemId(item.id);
+    setApplyLinkedCompletionDate(false);
+    setApplyLinkedMileage(false);
+    setApplyLinkedProvider(false);
+    setError(null);
+  }
+
+  async function applyDetailsToLinkedMaintenance(
+    event: FormEvent<HTMLFormElement>,
+    item: MaintenanceItem,
+  ) {
+    event.preventDefault();
+    if (savingLinkedDetails) return;
+
+    const useCompletionDate = item.completed_at
+      ? applyLinkedCompletionDate
+      : applyLinkedCompletionDate && Boolean(review.document_date);
+    const useServiceMileage = item.completed_at
+      ? applyLinkedMileage
+      : applyLinkedCompletionDate && applyLinkedMileage;
+    const useServiceProvider = applyLinkedProvider && Boolean(reviewedProvider);
+
+    if (!useCompletionDate && !useServiceMileage && !useServiceProvider) {
+      setError("Choose at least one invoice value to apply.");
+      return;
+    }
+
+    setSavingLinkedDetails(true);
+    setError(null);
+    const updateError = await updateMaintenanceFromInvoice(
+      item,
+      useCompletionDate,
+      useServiceMileage,
+      useServiceProvider,
+    );
+
+    if (updateError) {
+      setError(`The link was kept, but maintenance details were not updated. ${updateError}`);
+      setSavingLinkedDetails(false);
+      onAnnounce("Maintenance details were not updated. The document link was kept.");
+      return;
+    }
+
+    const refreshFailed = await refreshRelatedData();
+    setSavingLinkedDetails(false);
+    setApplyingMaintenanceItemId(null);
+    setApplyLinkedCompletionDate(false);
+    setApplyLinkedMileage(false);
+    setApplyLinkedProvider(false);
+
+    if (refreshFailed) {
+      setError(
+        "Maintenance details were updated, but the display could not be refreshed. Reload the page to verify them.",
+      );
+      onAnnounce("Maintenance details updated. Reload the page to refresh the display.");
+    } else {
+      setError(null);
+      onAnnounce("Selected invoice details applied to maintenance.");
     }
   }
 
@@ -298,6 +436,7 @@ export function DocumentMaintenanceLinks({
             if (showChooser) {
               closeChooser();
             } else {
+              if (applyingMaintenanceItemId) closeApplyDetails();
               setError(null);
               setShowChooser(true);
             }
@@ -309,22 +448,160 @@ export function DocumentMaintenanceLinks({
 
       {linkedMaintenanceItems.length > 0 ? (
         <ul className={styles.linkedList}>
-          {linkedMaintenanceItems.map((item) => (
-            <li key={item.id} className={styles.linkedItem}>
-              <div>
-                <p className={styles.itemTitle}>{item.title}</p>
-                <p className={styles.itemMeta}>{getItemContext(item)}</p>
-              </div>
-              <Button
-                size="sm"
-                variant="ghost"
-                disabled={unlinkingMaintenanceItemId !== null || saving}
-                onClick={() => void unlinkMaintenance(item)}
-              >
-                {unlinkingMaintenanceItemId === item.id ? "Unlinking..." : "Unlink"}
-              </Button>
-            </li>
-          ))}
+          {linkedMaintenanceItems.map((item) => {
+            const canApplyInvoiceDetails = item.completed_at
+              ? Boolean(review.document_date) || hasInvoiceMileage || Boolean(reviewedProvider)
+              : Boolean(review.document_date) || Boolean(reviewedProvider);
+            const isApplyingDetails = applyingMaintenanceItemId === item.id;
+
+            return (
+              <li key={item.id} className={styles.linkedEntry}>
+                <div className={styles.linkedItem}>
+                  <div>
+                    <p className={styles.itemTitle}>{item.title}</p>
+                    <p className={styles.itemMeta}>
+                      {getItemContext(item)}
+                      {item.service_mileage !== null
+                        ? ` · ${formatMileage(item.service_mileage)} mi`
+                        : ""}
+                    </p>
+                  </div>
+                  <div className={styles.linkedActions}>
+                    {canApplyInvoiceDetails ? (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        aria-expanded={isApplyingDetails}
+                        aria-controls={`apply-invoice-details-${documentId}-${item.id}`}
+                        disabled={
+                          unlinkingMaintenanceItemId !== null
+                          || saving
+                          || savingLinkedDetails
+                        }
+                        onClick={() => toggleApplyDetails(item)}
+                      >
+                        {isApplyingDetails ? "Close" : "Apply invoice details"}
+                      </Button>
+                    ) : null}
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={
+                        unlinkingMaintenanceItemId !== null
+                        || saving
+                        || savingLinkedDetails
+                      }
+                      onClick={() => void unlinkMaintenance(item)}
+                    >
+                      {unlinkingMaintenanceItemId === item.id ? "Unlinking..." : "Unlink"}
+                    </Button>
+                  </div>
+                </div>
+
+                {isApplyingDetails ? (
+                  <form
+                    id={`apply-invoice-details-${documentId}-${item.id}`}
+                    className={styles.applyDetails}
+                    onSubmit={(event) =>
+                      void applyDetailsToLinkedMaintenance(event, item)
+                    }
+                  >
+                    <p className={styles.choiceTitle}>
+                      Apply invoice details
+                    </p>
+                    <p className={styles.helperCopy}>
+                      Only the values you select will change. The document link remains
+                      independent.
+                    </p>
+
+                    {review.document_date ? (
+                      <label className={styles.checkboxChoice}>
+                        <input
+                          type="checkbox"
+                          checked={applyLinkedCompletionDate}
+                          disabled={savingLinkedDetails}
+                          onChange={(event) => {
+                            setApplyLinkedCompletionDate(event.target.checked);
+                            if (!event.target.checked && !item.completed_at) {
+                              setApplyLinkedMileage(false);
+                            }
+                            setError(null);
+                          }}
+                        />
+                        <span>
+                          {item.completed_at ? "Replace completion date" : "Completion date"}: {" "}
+                          <strong>{formatDateOnly(review.document_date)}</strong>
+                        </span>
+                      </label>
+                    ) : null}
+
+                    {hasInvoiceMileage && review.mileage !== null ? (
+                      <label className={styles.checkboxChoice}>
+                        <input
+                          type="checkbox"
+                          checked={applyLinkedMileage}
+                          disabled={
+                            savingLinkedDetails
+                            || (!item.completed_at && !applyLinkedCompletionDate)
+                          }
+                          onChange={(event) => {
+                            setApplyLinkedMileage(event.target.checked);
+                            setError(null);
+                          }}
+                        />
+                        <span>
+                          Replace service mileage: {" "}
+                          <strong>{formatMileage(review.mileage)} mi</strong>
+                        </span>
+                      </label>
+                    ) : null}
+
+                    {reviewedProvider ? (
+                      <label className={styles.checkboxChoice}>
+                        <input
+                          type="checkbox"
+                          checked={applyLinkedProvider}
+                          disabled={savingLinkedDetails}
+                          onChange={(event) => {
+                            setApplyLinkedProvider(event.target.checked);
+                            setError(null);
+                          }}
+                        />
+                        <span>
+                          Use provider / shop: <strong>{reviewedProvider}</strong>
+                        </span>
+                      </label>
+                    ) : null}
+
+                    <div className={styles.actions}>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        disabled={savingLinkedDetails}
+                        onClick={closeApplyDetails}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        type="submit"
+                        variant="primary"
+                        disabled={
+                          savingLinkedDetails
+                          || (
+                            !applyLinkedCompletionDate
+                            && !applyLinkedMileage
+                            && !applyLinkedProvider
+                          )
+                        }
+                      >
+                        {savingLinkedDetails ? "Applying..." : "Apply selected details"}
+                      </Button>
+                    </div>
+                  </form>
+                ) : null}
+              </li>
+            );
+          })}
         </ul>
       ) : (
         <p className={styles.emptyCopy}>No maintenance records linked yet.</p>
@@ -356,7 +633,9 @@ export function DocumentMaintenanceLinks({
                         onChange={() => {
                           setSelectedMaintenanceItemId(item.id);
                           setMarkCompletedFromInvoice(false);
+                          setReplaceCompletionDateFromInvoice(false);
                           setUseInvoiceMileage(false);
+                          setUseInvoiceProvider(false);
                           setError(null);
                         }}
                       />
@@ -389,6 +668,23 @@ export function DocumentMaintenanceLinks({
 
           {selectedMaintenanceItem && !selectedMaintenanceItem.completed_at ? (
             <div className={styles.completionOptions}>
+              {reviewedProvider ? (
+                <label className={styles.checkboxChoice}>
+                  <input
+                    type="checkbox"
+                    checked={useInvoiceProvider}
+                    disabled={saving}
+                    onChange={(event) => {
+                      setUseInvoiceProvider(event.target.checked);
+                      setError(null);
+                    }}
+                  />
+                  <span>
+                    Use provider / shop: <strong>{reviewedProvider}</strong>
+                  </span>
+                </label>
+              ) : null}
+
               {canOfferInvoiceCompletion && review.document_date ? (
                 <>
                   <label className={styles.checkboxChoice}>
@@ -433,6 +729,69 @@ export function DocumentMaintenanceLinks({
                   Invoice mileage is available, but a reviewed service date is required to
                   complete the item here. Link it now and use the normal Mark done flow later.
                 </p>
+              ) : null}
+            </div>
+          ) : null}
+
+          {selectedMaintenanceItem?.completed_at
+          && (review.document_date || hasInvoiceMileage || reviewedProvider) ? (
+            <div className={styles.completionOptions}>
+              <p className={styles.choiceTitle}>Update maintenance from invoice</p>
+              <p className={styles.helperCopy}>
+                Optional. Select only the reviewed values you want to replace.
+              </p>
+
+              {review.document_date ? (
+                <label className={styles.checkboxChoice}>
+                  <input
+                    type="checkbox"
+                    checked={replaceCompletionDateFromInvoice}
+                    disabled={saving}
+                    onChange={(event) => {
+                      setReplaceCompletionDateFromInvoice(event.target.checked);
+                      setError(null);
+                    }}
+                  />
+                  <span>
+                    Replace completion date: {" "}
+                    <strong>{formatDateOnly(review.document_date)}</strong>
+                  </span>
+                </label>
+              ) : null}
+
+              {hasInvoiceMileage && review.mileage !== null ? (
+                <label className={styles.checkboxChoice}>
+                  <input
+                    type="checkbox"
+                    checked={useInvoiceMileage}
+                    disabled={saving}
+                    onChange={(event) => {
+                      setUseInvoiceMileage(event.target.checked);
+                      setError(null);
+                    }}
+                  />
+                  <span>
+                    Replace service mileage: {" "}
+                    <strong>{formatMileage(review.mileage)} mi</strong>
+                  </span>
+                </label>
+              ) : null}
+
+              {reviewedProvider ? (
+                <label className={styles.checkboxChoice}>
+                  <input
+                    type="checkbox"
+                    checked={useInvoiceProvider}
+                    disabled={saving}
+                    onChange={(event) => {
+                      setUseInvoiceProvider(event.target.checked);
+                      setError(null);
+                    }}
+                  />
+                  <span>
+                    Replace provider / shop: <strong>{reviewedProvider}</strong>
+                  </span>
+                </label>
               ) : null}
             </div>
           ) : null}

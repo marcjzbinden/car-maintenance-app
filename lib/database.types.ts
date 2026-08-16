@@ -156,7 +156,9 @@ export type Database = {
           garage_id: string
           id: string
           notes: string | null
+          self_performed: boolean
           service_mileage: number | null
+          service_provider: string | null
           title: string
           vehicle_id: string
         }
@@ -168,7 +170,9 @@ export type Database = {
           garage_id: string
           id?: string
           notes?: string | null
+          self_performed?: boolean
           service_mileage?: number | null
+          service_provider?: string | null
           title: string
           vehicle_id: string
         }
@@ -180,7 +184,9 @@ export type Database = {
           garage_id?: string
           id?: string
           notes?: string | null
+          self_performed?: boolean
           service_mileage?: number | null
+          service_provider?: string | null
           title?: string
           vehicle_id?: string
         }

@@ -41,6 +41,8 @@ type MaintenanceItem = Pick<
   | "due_date"
   | "completed_at"
   | "service_mileage"
+  | "service_provider"
+  | "self_performed"
   | "created_at"
 >;
 type ReviewWritePayload = Omit<

@@ -43,6 +43,8 @@ type MaintenanceRow = {
   due_date: string | null;
   completed_at: string | null;
   service_mileage: number | null;
+  service_provider: string | null;
+  self_performed: boolean;
   notes: string | null;
   created_at: string;
 };
@@ -99,6 +101,55 @@ function getErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Failed to load vehicle.";
 }
 
+type PerformerFieldsProps = {
+  provider: string;
+  selfPerformed: boolean;
+  disabled?: boolean;
+  onProviderChange: (value: string) => void;
+  onSelfPerformedChange: (value: boolean) => void;
+};
+
+function PerformerFields({
+  provider,
+  selfPerformed,
+  disabled = false,
+  onProviderChange,
+  onSelfPerformedChange,
+}: PerformerFieldsProps) {
+  return (
+    <div className={styles.performerFields}>
+      <label className={styles.label}>
+        Provider / shop <span className={styles.optional}>(optional)</span>
+        <input
+          value={provider}
+          disabled={disabled || selfPerformed}
+          className={styles.input}
+          onChange={(event) => {
+            onProviderChange(event.target.value);
+            if (event.target.value && selfPerformed) {
+              onSelfPerformedChange(false);
+            }
+          }}
+        />
+      </label>
+
+      <label className={styles.selfPerformedChoice}>
+        <input
+          type="checkbox"
+          checked={selfPerformed}
+          disabled={disabled}
+          onChange={(event) => {
+            const checked = event.target.checked;
+            onSelfPerformedChange(checked);
+            if (checked) onProviderChange("");
+          }}
+        />
+        <span>Self-performed</span>
+      </label>
+    </div>
+  );
+}
+
 export default function VehicleDetailPage() {
   const router = useRouter();
   const params = useParams<{ id: string }>();
@@ -118,6 +169,8 @@ export default function VehicleDetailPage() {
   const [dueDate, setDueDate] = useState("");
   const [completionDate, setCompletionDate] = useState(getLocalDateInputValue);
   const [serviceMileage, setServiceMileage] = useState("");
+  const [serviceProvider, setServiceProvider] = useState("");
+  const [selfPerformed, setSelfPerformed] = useState(false);
   const [notes, setNotes] = useState("");
   const [addError, setAddError] = useState<string | null>(null);
   const [addAnnouncement, setAddAnnouncement] = useState("");
@@ -130,6 +183,8 @@ export default function VehicleDetailPage() {
   const [editCompletionDate, setEditCompletionDate] = useState("");
   const [originalEditCompletionDate, setOriginalEditCompletionDate] = useState("");
   const [editServiceMileage, setEditServiceMileage] = useState("");
+  const [editServiceProvider, setEditServiceProvider] = useState("");
+  const [editSelfPerformed, setEditSelfPerformed] = useState(false);
   const [editNotes, setEditNotes] = useState("");
   const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
@@ -139,6 +194,8 @@ export default function VehicleDetailPage() {
   const [completingItem, setCompletingItem] = useState<MaintenanceRow | null>(null);
   const [completeDate, setCompleteDate] = useState("");
   const [completeMileage, setCompleteMileage] = useState("");
+  const [completeProvider, setCompleteProvider] = useState("");
+  const [completeSelfPerformed, setCompleteSelfPerformed] = useState(false);
   const [isCompleting, setIsCompleting] = useState(false);
   const [completeError, setCompleteError] = useState<string | null>(null);
   const completeDateInputRef = useRef<HTMLInputElement>(null);
@@ -296,6 +353,8 @@ export default function VehicleDetailPage() {
     setEditCompletionDate("");
     setOriginalEditCompletionDate("");
     setEditServiceMileage("");
+    setEditServiceProvider("");
+    setEditSelfPerformed(false);
     setEditNotes("");
     setEditError(null);
 
@@ -326,6 +385,8 @@ export default function VehicleDetailPage() {
     setCompletingItem(null);
     setCompleteDate("");
     setCompleteMileage("");
+    setCompleteProvider("");
+    setCompleteSelfPerformed(false);
     setCompleteError(null);
     setIsCompleting(false);
 
@@ -367,6 +428,9 @@ export default function VehicleDetailPage() {
     const completedAt = addMode === "completed"
       ? dateOnlyToNoonUtc(completionDate)
       : null;
+    const normalizedServiceProvider = addMode === "completed" && !selfPerformed
+      ? serviceProvider.trim() || null
+      : null;
 
     if (addMode === "completed" && !completedAt) {
       setAddError("Choose a valid completion date.");
@@ -380,6 +444,8 @@ export default function VehicleDetailPage() {
       due_date: addMode === "open" ? dueDate.trim() || null : null,
       completed_at: completedAt,
       service_mileage: addMode === "completed" ? parsedMileage.value : null,
+      service_provider: normalizedServiceProvider,
+      self_performed: addMode === "completed" ? selfPerformed : false,
       notes: notes.trim() || null,
       created_by: userId,
     };
@@ -395,6 +461,8 @@ export default function VehicleDetailPage() {
     setDueDate("");
     setCompletionDate(getLocalDateInputValue());
     setServiceMileage("");
+    setServiceProvider("");
+    setSelfPerformed(false);
     setNotes("");
 
     await loadAll();
@@ -409,6 +477,8 @@ export default function VehicleDetailPage() {
     setCompletingItem(item);
     setCompleteDate(getLocalDateInputValue());
     setCompleteMileage(item.service_mileage?.toString() ?? "");
+    setCompleteProvider(item.self_performed ? "" : item.service_provider ?? "");
+    setCompleteSelfPerformed(item.self_performed);
   }
 
   async function markCompleted() {
@@ -427,12 +497,18 @@ export default function VehicleDetailPage() {
       return;
     }
 
+    const normalizedServiceProvider = completeSelfPerformed
+      ? null
+      : completeProvider.trim() || null;
+
     setIsCompleting(true);
     const { error } = await supabase
       .from("maintenance_items")
       .update({
         completed_at: completedAt,
         service_mileage: parsedMileage.value,
+        service_provider: normalizedServiceProvider,
+        self_performed: completeSelfPerformed,
       })
       .eq("id", completingItem.id);
 
@@ -448,6 +524,8 @@ export default function VehicleDetailPage() {
             ...item,
             completed_at: completedAt,
             service_mileage: parsedMileage.value,
+            service_provider: normalizedServiceProvider,
+            self_performed: completeSelfPerformed,
           }
         : item
     )));
@@ -481,6 +559,8 @@ export default function VehicleDetailPage() {
     setEditCompletionDate(displayedCompletionDate);
     setOriginalEditCompletionDate(displayedCompletionDate);
     setEditServiceMileage(item.service_mileage?.toString() ?? "");
+    setEditServiceProvider(item.self_performed ? "" : item.service_provider ?? "");
+    setEditSelfPerformed(item.self_performed);
     setEditNotes(item.notes ?? "");
   }
 
@@ -528,6 +608,10 @@ export default function VehicleDetailPage() {
         ? {
             completed_at: nextCompletedAt,
             service_mileage: parsedMileage.value,
+            service_provider: editSelfPerformed
+              ? null
+              : editServiceProvider.trim() || null,
+            self_performed: editSelfPerformed,
           }
         : {}),
     };
@@ -567,6 +651,8 @@ export default function VehicleDetailPage() {
     setDueDate("");
     setCompletionDate(getLocalDateInputValue());
     setServiceMileage("");
+    setServiceProvider("");
+    setSelfPerformed(false);
     setNotes("");
     setAddError(null);
   }
@@ -744,6 +830,13 @@ export default function VehicleDetailPage() {
                         className={styles.input}
                       />
                     </label>
+
+                    <PerformerFields
+                      provider={serviceProvider}
+                      selfPerformed={selfPerformed}
+                      onProviderChange={setServiceProvider}
+                      onSelfPerformedChange={setSelfPerformed}
+                    />
                   </>
                 )}
 
@@ -791,6 +884,8 @@ export default function VehicleDetailPage() {
                   dueDate={item.due_date}
                   completedAt={item.completed_at}
                   serviceMileage={item.service_mileage}
+                  serviceProvider={item.service_provider}
+                  selfPerformed={item.self_performed}
                   notes={item.notes}
                   linkedDocuments={linkedDocumentsByMaintenanceId[item.id] ?? []}
                   onOpenLinkedDocument={(document) => void openLinkedDocument(document)}
@@ -836,6 +931,8 @@ export default function VehicleDetailPage() {
                   dueDate={item.due_date}
                   completedAt={item.completed_at}
                   serviceMileage={item.service_mileage}
+                  serviceProvider={item.service_provider}
+                  selfPerformed={item.self_performed}
                   notes={item.notes}
                   linkedDocuments={linkedDocumentsByMaintenanceId[item.id] ?? []}
                   onOpenLinkedDocument={(document) => void openLinkedDocument(document)}
@@ -929,6 +1026,14 @@ export default function VehicleDetailPage() {
                       className={styles.input}
                     />
                   </label>
+
+                  <PerformerFields
+                    provider={editServiceProvider}
+                    selfPerformed={editSelfPerformed}
+                    disabled={isSavingEdit}
+                    onProviderChange={setEditServiceProvider}
+                    onSelfPerformedChange={setEditSelfPerformed}
+                  />
                 </div>
               ) : null}
 
@@ -1008,6 +1113,14 @@ export default function VehicleDetailPage() {
                   className={styles.input}
                 />
               </label>
+
+              <PerformerFields
+                provider={completeProvider}
+                selfPerformed={completeSelfPerformed}
+                disabled={isCompleting}
+                onProviderChange={setCompleteProvider}
+                onSelfPerformedChange={setCompleteSelfPerformed}
+              />
 
               {completeError ? (
                 <p role="alert" className={styles.dialogError}>

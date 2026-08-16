@@ -23,6 +23,8 @@ type MaintenanceItemCardProps = {
   dueDate: string | null;
   completedAt: string | null;
   serviceMileage: number | null;
+  serviceProvider: string | null;
+  selfPerformed: boolean;
   notes: string | null;
   linkedDocuments?: LinkedMaintenanceDocument[];
   onOpenLinkedDocument?: (document: LinkedMaintenanceDocument) => void;
@@ -77,6 +79,8 @@ export function MaintenanceItemCard({
   dueDate,
   completedAt,
   serviceMileage,
+  serviceProvider,
+  selfPerformed,
   notes,
   linkedDocuments = [],
   onOpenLinkedDocument,
@@ -86,6 +90,7 @@ export function MaintenanceItemCard({
 }: MaintenanceItemCardProps) {
   const presentation = statusPresentation[status];
   const completed = status === "completed";
+  const performer = selfPerformed ? "Self-performed" : serviceProvider?.trim() || null;
   const [showDocuments, setShowDocuments] = useState(false);
   const documentListId = useId();
 
@@ -102,6 +107,7 @@ export function MaintenanceItemCard({
             <p className={styles.completedDate}>
               Completed {formatCompletedDate(completedAt)}
               {serviceMileage !== null ? ` · ${formatMileage(serviceMileage)} mi` : ""}
+              {performer ? ` · ${performer}` : ""}
             </p>
           ) : null}
 
