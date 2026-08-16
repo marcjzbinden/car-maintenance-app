@@ -108,6 +108,45 @@ export type Database = {
           },
         ]
       }
+      maintenance_item_documents: {
+        Row: {
+          document_id: string
+          linked_at: string
+          linked_by: string | null
+          maintenance_item_id: string
+          vehicle_id: string
+        }
+        Insert: {
+          document_id: string
+          linked_at?: string
+          linked_by?: string | null
+          maintenance_item_id: string
+          vehicle_id: string
+        }
+        Update: {
+          document_id?: string
+          linked_at?: string
+          linked_by?: string | null
+          maintenance_item_id?: string
+          vehicle_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "maintenance_item_documents_document_vehicle_fkey"
+            columns: ["document_id", "vehicle_id"]
+            isOneToOne: false
+            referencedRelation: "vehicle_documents"
+            referencedColumns: ["id", "vehicle_id"]
+          },
+          {
+            foreignKeyName: "maintenance_item_documents_maintenance_vehicle_fkey"
+            columns: ["maintenance_item_id", "vehicle_id"]
+            isOneToOne: false
+            referencedRelation: "maintenance_items"
+            referencedColumns: ["id", "vehicle_id"]
+          },
+        ]
+      }
       maintenance_items: {
         Row: {
           completed_at: string | null
@@ -117,6 +156,7 @@ export type Database = {
           garage_id: string
           id: string
           notes: string | null
+          service_mileage: number | null
           title: string
           vehicle_id: string
         }
@@ -128,6 +168,7 @@ export type Database = {
           garage_id: string
           id?: string
           notes?: string | null
+          service_mileage?: number | null
           title: string
           vehicle_id: string
         }
@@ -139,6 +180,7 @@ export type Database = {
           garage_id?: string
           id?: string
           notes?: string | null
+          service_mileage?: number | null
           title?: string
           vehicle_id?: string
         }

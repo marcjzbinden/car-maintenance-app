@@ -13,9 +13,10 @@ type MaintenanceItemCardProps = {
   status: MaintenanceDisplayStatus;
   dueDate: string | null;
   completedAt: string | null;
+  serviceMileage: number | null;
   notes: string | null;
   onEdit: (trigger: HTMLButtonElement) => void;
-  onMarkCompleted?: () => void;
+  onMarkCompleted?: (trigger: HTMLButtonElement) => void;
   onReopen?: () => void;
 };
 
@@ -53,11 +54,18 @@ function formatCompletedDate(value: string) {
   }).format(date);
 }
 
+function formatMileage(value: number) {
+  return new Intl.NumberFormat(undefined, {
+    maximumFractionDigits: 0,
+  }).format(value);
+}
+
 export function MaintenanceItemCard({
   title,
   status,
   dueDate,
   completedAt,
+  serviceMileage,
   notes,
   onEdit,
   onMarkCompleted,
@@ -76,7 +84,10 @@ export function MaintenanceItemCard({
           </div>
 
           {completed && completedAt ? (
-            <p className={styles.completedDate}>Completed {formatCompletedDate(completedAt)}</p>
+            <p className={styles.completedDate}>
+              Completed {formatCompletedDate(completedAt)}
+              {serviceMileage !== null ? ` · ${formatMileage(serviceMileage)} mi` : ""}
+            </p>
           ) : null}
 
           <p className={styles.dateContext}>
@@ -105,7 +116,11 @@ export function MaintenanceItemCard({
               Reopen
             </Button>
           ) : (
-            <Button size="sm" variant="secondary" onClick={onMarkCompleted}>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={(event) => onMarkCompleted?.(event.currentTarget)}
+            >
               Mark done
             </Button>
           )}

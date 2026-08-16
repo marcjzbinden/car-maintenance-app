@@ -13,6 +13,11 @@ import { MaintenanceItemCard, type MaintenanceDisplayStatus } from "@/components
 import { VehicleDocumentsSection } from "@/components/documents/VehicleDocumentsSection";
 import { AppShell, Button, Card, PageHeader, StatusBadge } from "@/components/ui";
 import { resolveAuthenticatedGarage } from "@/lib/garageSetup";
+import {
+  completedAtToLocalDateInput,
+  dateOnlyToNoonUtc,
+  getLocalDateInputValue,
+} from "@/lib/maintenanceDates";
 import { supabase } from "@/lib/supabaseClient";
 import styles from "./vehicle-detail.module.css";
 
@@ -32,6 +37,7 @@ type MaintenanceRow = {
   title: string;
   due_date: string | null;
   completed_at: string | null;
+  service_mileage: number | null;
   notes: string | null;
   created_at: string;
 };
@@ -61,6 +67,29 @@ const urgencyRank: Record<Exclude<MaintenanceDisplayStatus, "completed">, number
   unscheduled: 3,
 };
 
+type AddMaintenanceMode = "open" | "completed";
+
+const MAX_POSTGRES_INTEGER = 2_147_483_647;
+
+function parseServiceMileage(value: string) {
+  const normalized = value.trim();
+  if (!normalized) return { value: null, error: null };
+
+  if (!/^\d+$/.test(normalized)) {
+    return { value: null, error: "Service mileage must be a whole number." };
+  }
+
+  const mileage = Number(normalized);
+  if (!Number.isSafeInteger(mileage) || mileage > MAX_POSTGRES_INTEGER) {
+    return {
+      value: null,
+      error: "Service mileage is too large.",
+    };
+  }
+
+  return { value: mileage, error: null };
+}
+
 function getErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Failed to load vehicle.";
 }
@@ -78,8 +107,12 @@ export default function VehicleDetailPage() {
 
   const [showAddItem, setShowAddItem] = useState(false);
   const [title, setTitle] = useState("");
+  const [addMode, setAddMode] = useState<AddMaintenanceMode>("open");
   const [dueDate, setDueDate] = useState("");
+  const [completionDate, setCompletionDate] = useState(getLocalDateInputValue);
+  const [serviceMileage, setServiceMileage] = useState("");
   const [notes, setNotes] = useState("");
+  const [addError, setAddError] = useState<string | null>(null);
   const [addAnnouncement, setAddAnnouncement] = useState("");
   const addTriggerRef = useRef<HTMLButtonElement>(null);
   const addTitleInputRef = useRef<HTMLInputElement>(null);
@@ -87,11 +120,23 @@ export default function VehicleDetailPage() {
   const [editingItem, setEditingItem] = useState<MaintenanceRow | null>(null);
   const [editTitle, setEditTitle] = useState("");
   const [editDueDate, setEditDueDate] = useState("");
+  const [editCompletionDate, setEditCompletionDate] = useState("");
+  const [originalEditCompletionDate, setOriginalEditCompletionDate] = useState("");
+  const [editServiceMileage, setEditServiceMileage] = useState("");
   const [editNotes, setEditNotes] = useState("");
   const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const editTitleInputRef = useRef<HTMLInputElement>(null);
   const editTriggerRef = useRef<HTMLButtonElement | null>(null);
+
+  const [completingItem, setCompletingItem] = useState<MaintenanceRow | null>(null);
+  const [completeDate, setCompleteDate] = useState("");
+  const [completeMileage, setCompleteMileage] = useState("");
+  const [isCompleting, setIsCompleting] = useState(false);
+  const [completeError, setCompleteError] = useState<string | null>(null);
+  const completeDateInputRef = useRef<HTMLInputElement>(null);
+  const completeTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const maintenanceHistoryHeadingRef = useRef<HTMLHeadingElement>(null);
 
   const canAdd = useMemo(() => title.trim().length > 0, [title]);
 
@@ -176,6 +221,9 @@ export default function VehicleDetailPage() {
     setEditingItem(null);
     setEditTitle("");
     setEditDueDate("");
+    setEditCompletionDate("");
+    setOriginalEditCompletionDate("");
+    setEditServiceMileage("");
     setEditNotes("");
     setEditError(null);
 
@@ -202,15 +250,64 @@ export default function VehicleDetailPage() {
     };
   }, [editingItem, closeEdit]);
 
+  const closeCompletion = useCallback((restoreFocus = true) => {
+    setCompletingItem(null);
+    setCompleteDate("");
+    setCompleteMileage("");
+    setCompleteError(null);
+    setIsCompleting(false);
+
+    if (restoreFocus) {
+      window.requestAnimationFrame(() => completeTriggerRef.current?.focus());
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!completingItem) return;
+
+    const focusTimer = window.setTimeout(() => completeDateInputRef.current?.focus(), 0);
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key !== "Escape" || isCompleting) return;
+      event.preventDefault();
+      closeCompletion();
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.clearTimeout(focusTimer);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [completingItem, isCompleting, closeCompletion]);
+
   async function addItem() {
     if (!vehicle || !userId || !canAdd) return;
 
     setAddAnnouncement("");
+    setAddError(null);
+
+    const parsedMileage = parseServiceMileage(serviceMileage);
+    if (addMode === "completed" && parsedMileage.error) {
+      setAddError(parsedMileage.error);
+      return;
+    }
+
+    const completedAt = addMode === "completed"
+      ? dateOnlyToNoonUtc(completionDate)
+      : null;
+
+    if (addMode === "completed" && !completedAt) {
+      setAddError("Choose a valid completion date.");
+      return;
+    }
+
     const payload = {
       garage_id: vehicle.garage_id,
       vehicle_id: vehicle.id,
       title: title.trim(),
-      due_date: dueDate.trim() || null,
+      due_date: addMode === "open" ? dueDate.trim() || null : null,
+      completed_at: completedAt,
+      service_mileage: addMode === "completed" ? parsedMileage.value : null,
       notes: notes.trim() || null,
       created_by: userId,
     };
@@ -222,7 +319,10 @@ export default function VehicleDetailPage() {
     }
 
     setTitle("");
+    setAddMode("open");
     setDueDate("");
+    setCompletionDate(getLocalDateInputValue());
+    setServiceMileage("");
     setNotes("");
 
     await loadAll();
@@ -231,19 +331,56 @@ export default function VehicleDetailPage() {
     window.requestAnimationFrame(() => addTriggerRef.current?.focus());
   }
 
-  async function markCompleted(id: string) {
-    const now = new Date().toISOString();
-    const { error } = await supabase
-      .from("maintenance_items")
-      .update({ completed_at: now })
-      .eq("id", id);
+  function openCompletion(item: MaintenanceRow, trigger: HTMLButtonElement) {
+    completeTriggerRef.current = trigger;
+    setCompleteError(null);
+    setCompletingItem(item);
+    setCompleteDate(getLocalDateInputValue());
+    setCompleteMileage(item.service_mileage?.toString() ?? "");
+  }
 
-    if (error) {
-      alert(error.message);
+  async function markCompleted() {
+    if (!completingItem) return;
+
+    setCompleteError(null);
+    const completedAt = dateOnlyToNoonUtc(completeDate);
+    if (!completedAt) {
+      setCompleteError("Choose a valid completion date.");
       return;
     }
 
-    setItems((prev) => prev.map((item) => (item.id === id ? { ...item, completed_at: now } : item)));
+    const parsedMileage = parseServiceMileage(completeMileage);
+    if (parsedMileage.error) {
+      setCompleteError(parsedMileage.error);
+      return;
+    }
+
+    setIsCompleting(true);
+    const { error } = await supabase
+      .from("maintenance_items")
+      .update({
+        completed_at: completedAt,
+        service_mileage: parsedMileage.value,
+      })
+      .eq("id", completingItem.id);
+
+    if (error) {
+      setCompleteError(error.message);
+      setIsCompleting(false);
+      return;
+    }
+
+    setItems((prev) => prev.map((item) => (
+      item.id === completingItem.id
+        ? {
+            ...item,
+            completed_at: completedAt,
+            service_mileage: parsedMileage.value,
+          }
+        : item
+    )));
+    closeCompletion(false);
+    window.requestAnimationFrame(() => maintenanceHistoryHeadingRef.current?.focus());
   }
 
   async function reopen(id: string) {
@@ -266,6 +403,12 @@ export default function VehicleDetailPage() {
     setEditingItem(item);
     setEditTitle(item.title);
     setEditDueDate(item.due_date ?? "");
+    const displayedCompletionDate = item.completed_at
+      ? completedAtToLocalDateInput(item.completed_at)
+      : "";
+    setEditCompletionDate(displayedCompletionDate);
+    setOriginalEditCompletionDate(displayedCompletionDate);
+    setEditServiceMileage(item.service_mileage?.toString() ?? "");
     setEditNotes(item.notes ?? "");
   }
 
@@ -280,10 +423,41 @@ export default function VehicleDetailPage() {
 
     setIsSavingEdit(true);
 
+    const parsedMileage = parseServiceMileage(editServiceMileage);
+    if (editingItem.completed_at && parsedMileage.error) {
+      setEditError(parsedMileage.error);
+      setIsSavingEdit(false);
+      return;
+    }
+
+    let nextCompletedAt = editingItem.completed_at;
+    if (editingItem.completed_at) {
+      if (!editCompletionDate) {
+        setEditError("Completion date is required for completed maintenance.");
+        setIsSavingEdit(false);
+        return;
+      }
+
+      if (editCompletionDate !== originalEditCompletionDate) {
+        nextCompletedAt = dateOnlyToNoonUtc(editCompletionDate);
+        if (!nextCompletedAt) {
+          setEditError("Choose a valid completion date.");
+          setIsSavingEdit(false);
+          return;
+        }
+      }
+    }
+
     const payload = {
       title: nextTitle,
       due_date: editDueDate ? editDueDate : null,
       notes: editNotes.trim() ? editNotes.trim() : null,
+      ...(editingItem.completed_at
+        ? {
+            completed_at: nextCompletedAt,
+            service_mileage: parsedMileage.value,
+          }
+        : {}),
     };
 
     const { error } = await supabase
@@ -317,6 +491,7 @@ export default function VehicleDetailPage() {
 
   function closeAddPanel() {
     setShowAddItem(false);
+    setAddError(null);
     window.requestAnimationFrame(() => addTriggerRef.current?.focus());
   }
 
@@ -388,10 +563,45 @@ export default function VehicleDetailPage() {
           <Card id="add-maintenance-panel" tone="subtle" padding="lg" className={styles.addPanel}>
             <h3 className={styles.panelTitle}>Add maintenance item</h3>
             <p className={styles.panelDescription}>
-              Add a due date now or leave it unscheduled for later.
+              Plan future work or record maintenance that is already complete.
             </p>
 
             <form onSubmit={submitAddItem}>
+              <fieldset className={styles.modeFieldset}>
+                <legend className={styles.modeLegend}>Maintenance status</legend>
+                <div className={styles.modeOptions}>
+                  <label className={styles.modeChoice}>
+                    <input
+                      type="radio"
+                      name="add-maintenance-mode"
+                      value="open"
+                      checked={addMode === "open"}
+                      onChange={() => {
+                        setAddMode("open");
+                        setAddError(null);
+                      }}
+                      className={styles.modeInput}
+                    />
+                    <span className={styles.modeChoiceText}>Open</span>
+                  </label>
+                  <label className={styles.modeChoice}>
+                    <input
+                      type="radio"
+                      name="add-maintenance-mode"
+                      value="completed"
+                      checked={addMode === "completed"}
+                      onChange={() => {
+                        setAddMode("completed");
+                        setCompletionDate((current) => current || getLocalDateInputValue());
+                        setAddError(null);
+                      }}
+                      className={styles.modeInput}
+                    />
+                    <span className={styles.modeChoiceText}>Already completed</span>
+                  </label>
+                </div>
+              </fieldset>
+
               <div className={styles.formGrid}>
                 <label className={styles.label}>
                   Title
@@ -405,15 +615,46 @@ export default function VehicleDetailPage() {
                   />
                 </label>
 
-                <label className={styles.label}>
-                  Due date <span className={styles.optional}>(optional)</span>
-                  <input
-                    type="date"
-                    value={dueDate}
-                    onChange={(event) => setDueDate(event.target.value)}
-                    className={styles.input}
-                  />
-                </label>
+                {addMode === "open" ? (
+                  <label className={styles.label}>
+                    Due date <span className={styles.optional}>(optional)</span>
+                    <input
+                      type="date"
+                      value={dueDate}
+                      onChange={(event) => setDueDate(event.target.value)}
+                      className={styles.input}
+                    />
+                  </label>
+                ) : (
+                  <>
+                    <label className={styles.label}>
+                      Completion date
+                      <input
+                        required
+                        type="date"
+                        value={completionDate}
+                        max={getLocalDateInputValue()}
+                        onChange={(event) => setCompletionDate(event.target.value)}
+                        className={styles.input}
+                      />
+                    </label>
+
+                    <label className={styles.label}>
+                      Service mileage <span className={styles.optional}>(optional)</span>
+                      <input
+                        type="number"
+                        inputMode="numeric"
+                        min="0"
+                        max={MAX_POSTGRES_INTEGER}
+                        step="1"
+                        value={serviceMileage}
+                        onChange={(event) => setServiceMileage(event.target.value)}
+                        placeholder="85,214"
+                        className={styles.input}
+                      />
+                    </label>
+                  </>
+                )}
 
                 <label className={`${styles.label} ${styles.fieldFull}`}>
                   Notes <span className={styles.optional}>(optional)</span>
@@ -425,6 +666,12 @@ export default function VehicleDetailPage() {
                   />
                 </label>
               </div>
+
+              {addError ? (
+                <p role="alert" className={styles.formError}>
+                  {addError}
+                </p>
+              ) : null}
 
               <div className={styles.formActions}>
                 <Button variant="ghost" onClick={closeAddPanel}>
@@ -452,9 +699,10 @@ export default function VehicleDetailPage() {
                   status={getStatus(item)}
                   dueDate={item.due_date}
                   completedAt={item.completed_at}
+                  serviceMileage={item.service_mileage}
                   notes={item.notes}
                   onEdit={(trigger) => openEdit(item, trigger)}
-                  onMarkCompleted={() => void markCompleted(item.id)}
+                  onMarkCompleted={(trigger) => openCompletion(item, trigger)}
                 />
               </li>
             ))}
@@ -466,7 +714,12 @@ export default function VehicleDetailPage() {
         <div className={styles.sectionHeader}>
           <div>
             <div className={styles.sectionHeading}>
-              <h2 id="maintenance-history-heading" className={styles.sectionTitle}>
+              <h2
+                ref={maintenanceHistoryHeadingRef}
+                id="maintenance-history-heading"
+                className={styles.sectionTitle}
+                tabIndex={-1}
+              >
                 Maintenance history
               </h2>
               <StatusBadge tone="neutral">{completedItems.length}</StatusBadge>
@@ -489,6 +742,7 @@ export default function VehicleDetailPage() {
                   status="completed"
                   dueDate={item.due_date}
                   completedAt={item.completed_at}
+                  serviceMileage={item.service_mileage}
                   notes={item.notes}
                   onEdit={(trigger) => openEdit(item, trigger)}
                   onReopen={() => void reopen(item.id)}
@@ -551,6 +805,36 @@ export default function VehicleDetailPage() {
                 </Button>
               </label>
 
+              {editingItem.completed_at ? (
+                <div className={styles.formGrid}>
+                  <label className={styles.label}>
+                    Completion date
+                    <input
+                      required
+                      type="date"
+                      value={editCompletionDate}
+                      max={getLocalDateInputValue()}
+                      onChange={(event) => setEditCompletionDate(event.target.value)}
+                      className={styles.input}
+                    />
+                  </label>
+
+                  <label className={styles.label}>
+                    Service mileage <span className={styles.optional}>(optional)</span>
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      min="0"
+                      max={MAX_POSTGRES_INTEGER}
+                      step="1"
+                      value={editServiceMileage}
+                      onChange={(event) => setEditServiceMileage(event.target.value)}
+                      className={styles.input}
+                    />
+                  </label>
+                </div>
+              ) : null}
+
               <label className={styles.label}>
                 Notes <span className={styles.optional}>(optional)</span>
                 <textarea
@@ -572,6 +856,80 @@ export default function VehicleDetailPage() {
                 </Button>
                 <Button type="submit" variant="primary" disabled={isSavingEdit}>
                   {isSavingEdit ? "Saving…" : "Save changes"}
+                </Button>
+              </div>
+            </form>
+          </Card>
+        </div>
+      ) : null}
+
+      {completingItem ? (
+        <div className={styles.dialogOverlay}>
+          <Card
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="complete-maintenance-title"
+            tone="elevated"
+            padding="lg"
+            className={styles.dialog}
+          >
+            <h2 id="complete-maintenance-title" className={styles.dialogTitle}>
+              Mark maintenance done
+            </h2>
+            <p className={styles.dialogDescription}>{completingItem.title}</p>
+
+            <form
+              className={styles.dialogForm}
+              onSubmit={(event) => {
+                event.preventDefault();
+                void markCompleted();
+              }}
+            >
+              <label className={styles.label}>
+                Completion date
+                <input
+                  required
+                  ref={completeDateInputRef}
+                  type="date"
+                  value={completeDate}
+                  max={getLocalDateInputValue()}
+                  onChange={(event) => setCompleteDate(event.target.value)}
+                  className={styles.input}
+                />
+              </label>
+
+              <label className={styles.label}>
+                Service mileage <span className={styles.optional}>(optional)</span>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min="0"
+                  max={MAX_POSTGRES_INTEGER}
+                  step="1"
+                  value={completeMileage}
+                  onChange={(event) => setCompleteMileage(event.target.value)}
+                  placeholder="85,214"
+                  className={styles.input}
+                />
+              </label>
+
+              {completeError ? (
+                <p role="alert" className={styles.dialogError}>
+                  {completeError}
+                </p>
+              ) : null}
+
+              <div className={styles.formActions}>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  disabled={isCompleting}
+                  onClick={() => closeCompletion()}
+                >
+                  Cancel
+                </Button>
+                <Button type="submit" variant="primary" disabled={isCompleting}>
+                  {isCompleting ? "Saving…" : "Mark done"}
                 </Button>
               </div>
             </form>
