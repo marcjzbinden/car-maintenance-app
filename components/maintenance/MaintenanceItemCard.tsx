@@ -1,3 +1,6 @@
+"use client";
+
+import { useId, useState } from "react";
 import { Button, Card, StatusBadge } from "@/components/ui";
 import styles from "./MaintenanceItemCard.module.css";
 
@@ -8,6 +11,12 @@ export type MaintenanceDisplayStatus =
   | "unscheduled"
   | "completed";
 
+export type LinkedMaintenanceDocument = {
+  id: string;
+  filename: string;
+  storagePath: string;
+};
+
 type MaintenanceItemCardProps = {
   title: string;
   status: MaintenanceDisplayStatus;
@@ -15,6 +24,8 @@ type MaintenanceItemCardProps = {
   completedAt: string | null;
   serviceMileage: number | null;
   notes: string | null;
+  linkedDocuments?: LinkedMaintenanceDocument[];
+  onOpenLinkedDocument?: (document: LinkedMaintenanceDocument) => void;
   onEdit: (trigger: HTMLButtonElement) => void;
   onMarkCompleted?: (trigger: HTMLButtonElement) => void;
   onReopen?: () => void;
@@ -67,12 +78,16 @@ export function MaintenanceItemCard({
   completedAt,
   serviceMileage,
   notes,
+  linkedDocuments = [],
+  onOpenLinkedDocument,
   onEdit,
   onMarkCompleted,
   onReopen,
 }: MaintenanceItemCardProps) {
   const presentation = statusPresentation[status];
   const completed = status === "completed";
+  const [showDocuments, setShowDocuments] = useState(false);
+  const documentListId = useId();
 
   return (
     <Card tone={completed ? "subtle" : "default"} padding="md" className={styles.card}>
@@ -101,6 +116,38 @@ export function MaintenanceItemCard({
           </p>
 
           {notes ? <p className={styles.notes}>{notes}</p> : null}
+
+          {linkedDocuments.length > 0 ? (
+            <div className={styles.documents}>
+              <button
+                type="button"
+                className={styles.documentsTrigger}
+                aria-expanded={showDocuments}
+                aria-controls={documentListId}
+                onClick={() => setShowDocuments((current) => !current)}
+              >
+                {linkedDocuments.length} {linkedDocuments.length === 1 ? "document" : "documents"}
+                <span aria-hidden="true">{showDocuments ? " −" : " +"}</span>
+              </button>
+
+              {showDocuments ? (
+                <ul id={documentListId} className={styles.documentList}>
+                  {linkedDocuments.map((document) => (
+                    <li key={document.id} className={styles.documentItem}>
+                      <span className={styles.documentFilename}>{document.filename}</span>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => onOpenLinkedDocument?.(document)}
+                      >
+                        Open
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
+          ) : null}
         </div>
 
         <div className={styles.actions}>

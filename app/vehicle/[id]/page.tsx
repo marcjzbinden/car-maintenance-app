@@ -9,7 +9,11 @@ import {
   useState,
 } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { MaintenanceItemCard, type MaintenanceDisplayStatus } from "@/components/maintenance/MaintenanceItemCard";
+import {
+  MaintenanceItemCard,
+  type LinkedMaintenanceDocument,
+  type MaintenanceDisplayStatus,
+} from "@/components/maintenance/MaintenanceItemCard";
 import { VehicleDocumentsSection } from "@/components/documents/VehicleDocumentsSection";
 import { AppShell, Button, Card, PageHeader, StatusBadge } from "@/components/ui";
 import { resolveAuthenticatedGarage } from "@/lib/garageSetup";
@@ -19,6 +23,7 @@ import {
   getLocalDateInputValue,
 } from "@/lib/maintenanceDates";
 import { supabase } from "@/lib/supabaseClient";
+import { createVehicleDocumentSignedUrl } from "@/lib/vehicleDocumentAccess";
 import styles from "./vehicle-detail.module.css";
 
 type VehicleRow = {
@@ -104,6 +109,8 @@ export default function VehicleDetailPage() {
   const [displayName, setDisplayName] = useState("");
   const [vehicle, setVehicle] = useState<VehicleRow | null>(null);
   const [items, setItems] = useState<MaintenanceRow[]>([]);
+  const [linkedDocumentsByMaintenanceId, setLinkedDocumentsByMaintenanceId] =
+    useState<Record<string, LinkedMaintenanceDocument[]>>({});
 
   const [showAddItem, setShowAddItem] = useState(false);
   const [title, setTitle] = useState("");
@@ -178,14 +185,79 @@ export default function VehicleDetailPage() {
     if (vErr) throw vErr;
     setVehicle(vData as VehicleRow);
 
-    const { data: mData, error: mErr } = await supabase
-      .from("maintenance_items")
-      .select("*")
-      .eq("vehicle_id", vehicleId)
-      .order("created_at", { ascending: false });
+    const [maintenanceResult, linkResult] = await Promise.all([
+      supabase
+        .from("maintenance_items")
+        .select("*")
+        .eq("vehicle_id", vehicleId)
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("maintenance_item_documents")
+        .select("document_id, maintenance_item_id, vehicle_id")
+        .eq("vehicle_id", vehicleId),
+    ]);
 
-    if (mErr) throw mErr;
-    setItems((mData ?? []) as MaintenanceRow[]);
+    if (maintenanceResult.error) throw maintenanceResult.error;
+    if (linkResult.error) throw linkResult.error;
+    setItems((maintenanceResult.data ?? []) as MaintenanceRow[]);
+
+    const links = linkResult.data ?? [];
+    const documentIds = Array.from(new Set(links.map((link) => link.document_id)));
+    let linkedDocuments: Array<{
+      id: string;
+      filename: string;
+      storage_path: string;
+    }> = [];
+
+    if (documentIds.length > 0) {
+      const { data: documentData, error: documentError } = await supabase
+        .from("vehicle_documents")
+        .select("id, filename, storage_path")
+        .eq("vehicle_id", vehicleId)
+        .in("id", documentIds);
+
+      if (documentError) throw documentError;
+      linkedDocuments = documentData ?? [];
+    }
+
+    const documentById = new Map(
+      linkedDocuments.map((document) => [document.id, document]),
+    );
+    const nextLinkedDocuments: Record<string, LinkedMaintenanceDocument[]> = {};
+
+    for (const link of links) {
+      const document = documentById.get(link.document_id);
+      if (!document) continue;
+
+      const current = nextLinkedDocuments[link.maintenance_item_id] ?? [];
+      current.push({
+        id: document.id,
+        filename: document.filename,
+        storagePath: document.storage_path,
+      });
+      nextLinkedDocuments[link.maintenance_item_id] = current;
+    }
+
+    setLinkedDocumentsByMaintenanceId(nextLinkedDocuments);
+  }
+
+  async function openLinkedDocument(document: LinkedMaintenanceDocument) {
+    const pendingWindow = window.open("", "_blank");
+    if (pendingWindow) pendingWindow.opener = null;
+
+    const { data, error } = await createVehicleDocumentSignedUrl(
+      document.storagePath,
+      document.filename,
+    );
+
+    if (error || !data?.signedUrl) {
+      pendingWindow?.close();
+      alert(error?.message ?? "Could not create a secure document link.");
+    } else if (pendingWindow) {
+      pendingWindow.location.replace(data.signedUrl);
+    } else {
+      window.location.assign(data.signedUrl);
+    }
   }
 
   useEffect(() => {
@@ -489,10 +561,30 @@ export default function VehicleDetailPage() {
     void saveEdit();
   }
 
+  function resetAddForm() {
+    setTitle("");
+    setAddMode("open");
+    setDueDate("");
+    setCompletionDate(getLocalDateInputValue());
+    setServiceMileage("");
+    setNotes("");
+    setAddError(null);
+  }
+
   function closeAddPanel() {
     setShowAddItem(false);
-    setAddError(null);
+    resetAddForm();
     window.requestAnimationFrame(() => addTriggerRef.current?.focus());
+  }
+
+  function toggleAddPanel() {
+    if (showAddItem) {
+      closeAddPanel();
+      return;
+    }
+
+    resetAddForm();
+    setShowAddItem(true);
   }
 
   if (loading) {
@@ -544,7 +636,7 @@ export default function VehicleDetailPage() {
             aria-label={showAddItem ? "Close add maintenance item form" : "Add maintenance item"}
             aria-expanded={showAddItem}
             aria-controls="add-maintenance-panel"
-            onClick={() => setShowAddItem((current) => !current)}
+            onClick={toggleAddPanel}
           >
             <span className={styles.actionLabelDesktop} aria-hidden="true">
               {showAddItem ? "Close" : "+ Add Maintenance Item"}
@@ -649,7 +741,6 @@ export default function VehicleDetailPage() {
                         step="1"
                         value={serviceMileage}
                         onChange={(event) => setServiceMileage(event.target.value)}
-                        placeholder="85,214"
                         className={styles.input}
                       />
                     </label>
@@ -701,6 +792,8 @@ export default function VehicleDetailPage() {
                   completedAt={item.completed_at}
                   serviceMileage={item.service_mileage}
                   notes={item.notes}
+                  linkedDocuments={linkedDocumentsByMaintenanceId[item.id] ?? []}
+                  onOpenLinkedDocument={(document) => void openLinkedDocument(document)}
                   onEdit={(trigger) => openEdit(item, trigger)}
                   onMarkCompleted={(trigger) => openCompletion(item, trigger)}
                 />
@@ -744,6 +837,8 @@ export default function VehicleDetailPage() {
                   completedAt={item.completed_at}
                   serviceMileage={item.service_mileage}
                   notes={item.notes}
+                  linkedDocuments={linkedDocumentsByMaintenanceId[item.id] ?? []}
+                  onOpenLinkedDocument={(document) => void openLinkedDocument(document)}
                   onEdit={(trigger) => openEdit(item, trigger)}
                   onReopen={() => void reopen(item.id)}
                 />
@@ -758,6 +853,8 @@ export default function VehicleDetailPage() {
           garageId={vehicle.garage_id}
           vehicleId={vehicle.id}
           currentUserId={userId}
+          maintenanceItems={items}
+          onMaintenanceDataChange={loadAll}
         />
       ) : null}
 
@@ -908,7 +1005,6 @@ export default function VehicleDetailPage() {
                   step="1"
                   value={completeMileage}
                   onChange={(event) => setCompleteMileage(event.target.value)}
-                  placeholder="85,214"
                   className={styles.input}
                 />
               </label>

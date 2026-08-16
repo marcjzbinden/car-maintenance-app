@@ -169,6 +169,18 @@ export function normalizeDocumentDateEvidence(
   return [...candidates];
 }
 
+export function getSupportingDocumentDateEvidence(
+  documentDate: string | null,
+  evidence: string | null,
+  now = new Date(),
+) {
+  if (!documentDate || !evidence) return null;
+
+  return normalizeDocumentDateEvidence(evidence, now).includes(documentDate)
+    ? evidence
+    : null;
+}
+
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
 }
@@ -246,18 +258,18 @@ export function normalizeDocumentAnalysisResult(
       ? normalizeDocumentDateEvidence(evidence, now)
       : [];
   const supportedDocumentDate = plausibleDocumentDate
-    ? evidenceDates.includes(plausibleDocumentDate)
-      ? plausibleDocumentDate
-      : evidenceDates.length === 1
-        ? evidenceDates[0]
-        : null
+    ? plausibleDocumentDate
     : evidenceDates.length === 1
       ? evidenceDates[0]
       : null;
+  const supportedEvidence = supportedDocumentDate
+    && evidenceDates.includes(supportedDocumentDate)
+    ? evidence
+    : null;
   const normalized = {
     ...candidate,
     document_date: supportedDocumentDate,
-    document_date_evidence: evidence,
+    document_date_evidence: supportedEvidence,
     expiration_date: normalizeDateValue(
       candidate.expiration_date,
       "1900-01-01",

@@ -19,17 +19,30 @@ import {
 } from "@/lib/documentAnalysis";
 import { supabase } from "@/lib/supabaseClient";
 import { createUuidV4 } from "@/lib/uuid";
+import { createVehicleDocumentSignedUrl } from "@/lib/vehicleDocumentAccess";
 import {
   DocumentAnalysisProposal,
   DocumentReviewForm,
   SavedDocumentReview,
 } from "./DocumentAnalysisReview";
+import { DocumentMaintenanceLinks } from "./DocumentMaintenanceLinks";
 import styles from "./VehicleDocumentsSection.module.css";
 
 type VehicleDocument = Tables<"vehicle_documents">;
 type VehicleDocumentInsert = TablesInsert<"vehicle_documents">;
 type VehicleDocumentReview = Tables<"vehicle_document_reviews">;
 type VehicleDocumentReviewInsert = TablesInsert<"vehicle_document_reviews">;
+type MaintenanceDocumentLink = Tables<"maintenance_item_documents">;
+type MaintenanceItem = Pick<
+  Tables<"maintenance_items">,
+  | "id"
+  | "vehicle_id"
+  | "title"
+  | "due_date"
+  | "completed_at"
+  | "service_mileage"
+  | "created_at"
+>;
 type ReviewWritePayload = Omit<
   VehicleDocumentReviewInsert,
   "reviewed_at" | "reviewed_by"
@@ -45,10 +58,11 @@ type VehicleDocumentsSectionProps = {
   garageId: string;
   vehicleId: string;
   currentUserId: string;
+  maintenanceItems: MaintenanceItem[];
+  onMaintenanceDataChange: () => Promise<void>;
 };
 
 const BUCKET_NAME = "vehicle-documents";
-const SIGNED_URL_LIFETIME_SECONDS = 60;
 const MAX_FILE_SIZE_BYTES = 15 * 1024 * 1024;
 
 const extensionByMimeType = {
@@ -147,7 +161,7 @@ function createReviewDraft(
     expiration_date: values.expiration_date ?? "",
     mileage: values.mileage === null ? "" : String(values.mileage),
     provider: values.provider ?? "",
-    total_cost: values.total_cost === null ? "" : String(values.total_cost),
+    total_cost: values.total_cost === null ? "" : values.total_cost.toFixed(2),
     completed_work: [...values.completed_work],
     recommendations: [...values.recommendations],
   };
@@ -210,11 +224,16 @@ export function VehicleDocumentsSection({
   garageId,
   vehicleId,
   currentUserId,
+  maintenanceItems,
+  onMaintenanceDataChange,
 }: VehicleDocumentsSectionProps) {
   const [documents, setDocuments] = useState<VehicleDocument[]>([]);
   const [reviewsByDocumentId, setReviewsByDocumentId] = useState<
     Record<string, VehicleDocumentReview>
   >({});
+  const [maintenanceDocumentLinks, setMaintenanceDocumentLinks] = useState<
+    MaintenanceDocumentLink[]
+  >([]);
   const [isGarageOwner, setIsGarageOwner] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -285,15 +304,21 @@ export function VehicleDocumentsSection({
 
     const loadedDocuments = (documentResult.data ?? []) as VehicleDocument[];
     let loadedReviews: VehicleDocumentReview[] = [];
+    let loadedLinks: MaintenanceDocumentLink[] = [];
 
     if (loadedDocuments.length > 0) {
-      const reviewResult = await supabase
-        .from("vehicle_document_reviews")
-        .select("*")
-        .in(
-          "document_id",
-          loadedDocuments.map((document) => document.id),
-        );
+      const documentIds = loadedDocuments.map((document) => document.id);
+      const [reviewResult, linkResult] = await Promise.all([
+        supabase
+          .from("vehicle_document_reviews")
+          .select("*")
+          .in("document_id", documentIds),
+        supabase
+          .from("maintenance_item_documents")
+          .select("*")
+          .eq("vehicle_id", vehicleId)
+          .in("document_id", documentIds),
+      ]);
 
       if (reviewResult.error) {
         setLoadError(`Document reviews could not be loaded. ${reviewResult.error.message}`);
@@ -301,7 +326,14 @@ export function VehicleDocumentsSection({
         return;
       }
 
+      if (linkResult.error) {
+        setLoadError(`Maintenance links could not be loaded. ${linkResult.error.message}`);
+        setIsLoading(false);
+        return;
+      }
+
       loadedReviews = (reviewResult.data ?? []) as VehicleDocumentReview[];
+      loadedLinks = (linkResult.data ?? []) as MaintenanceDocumentLink[];
     }
 
     setLoadError(null);
@@ -311,6 +343,7 @@ export function VehicleDocumentsSection({
         loadedReviews.map((review) => [review.document_id, review]),
       ),
     );
+    setMaintenanceDocumentLinks(loadedLinks);
     setIsGarageOwner(ownerResult.error ? false : ownerResult.data === true);
     setIsLoading(false);
   }, [garageId, vehicleId]);
@@ -500,13 +533,11 @@ export function VehicleDocumentsSection({
       setOpeningDocumentId(document.id);
     }
 
-    const { data, error } = await supabase.storage
-      .from(BUCKET_NAME)
-      .createSignedUrl(
-        document.storage_path,
-        SIGNED_URL_LIFETIME_SECONDS,
-        download ? { download: document.filename } : undefined,
-      );
+    const { data, error } = await createVehicleDocumentSignedUrl(
+      document.storage_path,
+      document.filename,
+      download,
+    );
 
     if (error || !data?.signedUrl) {
       pendingWindow?.close();
@@ -574,6 +605,9 @@ export function VehicleDocumentsSection({
       delete next[document.id];
       return next;
     });
+    setMaintenanceDocumentLinks((current) =>
+      current.filter((link) => link.document_id !== document.id),
+    );
     setDraftByDocumentId((current) => {
       const next = { ...current };
       delete next[document.id];
@@ -596,6 +630,13 @@ export function VehicleDocumentsSection({
     });
     setDeletingDocumentId(null);
     setAnnouncement(`${document.filename} deleted.`);
+    try {
+      await onMaintenanceDataChange();
+    } catch {
+      setActionError(
+        "The document was deleted, but linked maintenance could not be refreshed. Reload the page to update it.",
+      );
+    }
     window.requestAnimationFrame(() => headingRef.current?.focus());
   }
 
@@ -1174,6 +1215,21 @@ export function VehicleDocumentsSection({
                         review={savedReview}
                         isEditing={reviewDraft !== undefined}
                         onEdit={() => editSavedReview(savedReview)}
+                      />
+                    ) : null}
+
+                    {savedReview?.document_type === "repair_invoice" ? (
+                      <DocumentMaintenanceLinks
+                        documentId={document.id}
+                        vehicleId={vehicleId}
+                        review={savedReview}
+                        maintenanceItems={maintenanceItems}
+                        links={maintenanceDocumentLinks.filter(
+                          (link) => link.document_id === document.id,
+                        )}
+                        onDocumentRelationshipsChanged={loadDocuments}
+                        onMaintenanceDataChanged={onMaintenanceDataChange}
+                        onAnnounce={setAnnouncement}
                       />
                     ) : null}
 

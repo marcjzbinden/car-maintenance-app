@@ -7,6 +7,7 @@ import type {
   DocumentAnalysisResult,
   DocumentReviewDraft,
 } from "@/lib/documentAnalysis";
+import { getSupportingDocumentDateEvidence } from "@/lib/documentAnalysis";
 import styles from "./DocumentAnalysisReview.module.css";
 
 type SavedDocumentReview = Tables<"vehicle_document_reviews">;
@@ -56,6 +57,17 @@ function formatNumber(value: number | null, maximumFractionDigits = 0) {
   return new Intl.NumberFormat(undefined, { maximumFractionDigits }).format(value);
 }
 
+function formatUsd(value: number | null) {
+  if (value === null) return "Not recorded";
+
+  return new Intl.NumberFormat(undefined, {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
 function ReviewFields({
   values,
 }: {
@@ -86,7 +98,7 @@ function ReviewFields({
         </div>
         <div className={styles.field}>
           <dt>Total</dt>
-          <dd>{formatNumber(values.total_cost, 2)}</dd>
+          <dd>{formatUsd(values.total_cost)}</dd>
         </div>
       </dl>
 
@@ -136,6 +148,11 @@ export function DocumentAnalysisProposal({
   onUseProposal: () => void;
   onDiscardProposal: () => void;
 }) {
+  const supportingEvidence = getSupportingDocumentDateEvidence(
+    analysis.document_date,
+    analysis.document_date_evidence,
+  );
+
   return (
     <Card tone="subtle" padding="md" className={styles.analysis}>
       <div className={styles.headingWithAction}>
@@ -154,9 +171,9 @@ export function DocumentAnalysisProposal({
       </div>
 
       <ReviewFields values={analysis} />
-      {analysis.document_date_evidence ? (
+      {supportingEvidence ? (
         <p className={styles.evidence}>
-          Date source: {analysis.document_date_evidence}
+          Date source: {supportingEvidence}
         </p>
       ) : null}
 
@@ -187,6 +204,11 @@ export function DocumentReviewForm({
   onCancel: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
+  const supportingEvidence = getSupportingDocumentDateEvidence(
+    draft.document_date || null,
+    evidence,
+  );
+
   function updateList(
     field: "completed_work" | "recommendations",
     index: number,
@@ -260,7 +282,9 @@ export function DocumentReviewForm({
               className={styles.input}
               onChange={updateField("document_date")}
             />
-            {evidence ? <span className={styles.fieldHelp}>Source: {evidence}</span> : null}
+            {supportingEvidence ? (
+              <span className={styles.fieldHelp}>Source: {supportingEvidence}</span>
+            ) : null}
           </label>
 
           <label className={styles.label}>
